@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ping -c 3 mcp-famachat-postgres.famachat.com.br)",
+      "Bash(curl -v --max-time 10 https://mcp-famachat-postgres.famachat.com.br)",
+      "Bash(wait)"
+    ]
+  }
+}
