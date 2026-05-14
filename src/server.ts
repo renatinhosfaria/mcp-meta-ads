@@ -17,6 +17,12 @@ import { registerDatasetTools } from './tools/datasets.js';
 import { registerCatalogTools } from './tools/catalogs.js';
 import { registerAdvancedInsightTools } from './tools/advanced-insights.js';
 import { registerRecommendationTools } from './tools/recommendations.js';
+import { registerTargetingTools } from './tools/targeting.js';
+import { registerReachTools } from './tools/reach.js';
+import { registerRuleTools } from './tools/rules.js';
+import { registerBrandSafetyTools } from './tools/brand-safety.js';
+import { registerCustomConversionTools } from './tools/custom-conversions.js';
+import { registerAccountExtrasTools } from './tools/account-extras.js';
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -42,6 +48,12 @@ export function createMcpServer(): McpServer {
   registerCatalogTools(server);
   registerAdvancedInsightTools(server);
   registerRecommendationTools(server);
+  registerTargetingTools(server);
+  registerReachTools(server);
+  registerRuleTools(server);
+  registerBrandSafetyTools(server);
+  registerCustomConversionTools(server);
+  registerAccountExtrasTools(server);
 
   return server;
 }
