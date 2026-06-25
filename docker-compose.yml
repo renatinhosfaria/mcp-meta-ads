@@ -6,11 +6,11 @@ services:
     networks:
       - network_public
     environment:
-      - API_KEY=${API_KEY}
+      - API_KEY=${API_KEY:?API_KEY required}
       - PORT=3200
       - RATE_LIMIT_RPM=60
       - NODE_ENV=production
-      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
+      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN:?META_ACCESS_TOKEN required}
       - META_AD_ACCOUNT_ID=act_24036721645944375
       - META_API_VERSION=v25.0
       - META_BUSINESS_ID=1190286072868410
