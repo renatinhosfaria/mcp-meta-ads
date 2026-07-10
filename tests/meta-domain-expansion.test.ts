@@ -159,7 +159,7 @@ test('normalizeUploadSource rejects invalid base64 payloads', async () => {
   );
 });
 
-test('buildAudienceUsersPayload builds the expected schema for replace operation', () => {
+test('buildAudienceUsersPayload omits is_raw for hashed customer data', () => {
   const payload = buildAudienceUsersPayload({
     schema: ['EMAIL'],
     users: [['user@example.com']],
@@ -168,7 +168,7 @@ test('buildAudienceUsersPayload builds the expected schema for replace operation
 
   assert.deepEqual(payload.payload.schema, ['EMAIL']);
   assert.deepEqual(payload.payload.data, [['user@example.com']]);
-  assert.equal(payload.is_raw, true);
+  assert.equal('is_raw' in payload, false);
 });
 
 test('getAudiencePaginationLimit over-fetches when subtype_filter is applied', () => {

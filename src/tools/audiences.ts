@@ -21,7 +21,6 @@ type AudienceUsersPayloadInput = {
   schema: string[];
   users: Array<Array<string | number>>;
   operation: 'add' | 'remove' | 'replace';
-  is_raw?: boolean;
   data_source?: string;
   session?: {
     session_id: string;
@@ -37,7 +36,6 @@ type AudienceUsersPayload = {
     data: Array<Array<string | number>>;
     data_source?: string;
   };
-  is_raw: boolean;
   session?: {
     session_id: string;
     estimated_num_total?: number;
@@ -60,7 +58,6 @@ export function buildAudienceUsersPayload(input: AudienceUsersPayloadInput): Aud
 
   const request: Omit<AudienceUsersPayload, 'endpointSuffix' | 'method'> = {
     payload,
-    is_raw: input.is_raw ?? true,
   };
 
   if (input.session) {
@@ -467,7 +464,6 @@ async function handleAudienceUsersMutation(
       {},
       {
         payload: JSON.stringify(request.payload),
-        is_raw: request.is_raw,
         ...(request.session ? { session: request.session } : {}),
       }
     );
