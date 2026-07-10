@@ -32,7 +32,7 @@ app.use(authMiddleware);
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 
 // POST /mcp — requisições principais
-app.post('/mcp', express.json(), async (req, res) => {
+app.post('/mcp', express.json({ limit: '1mb' }), async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
   if (sessionId && transports[sessionId]) {
