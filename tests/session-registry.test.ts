@@ -87,3 +87,20 @@ test('closeAll closes every active session', async () => {
   assert.equal(second.transport.closeCalls, 1);
   assert.equal(second.server.closeCalls, 1);
 });
+
+test('emits lifecycle events with the close reason and active count', async () => {
+  const events: unknown[] = [];
+  const registry = new SessionRegistry({
+    idleTtlMs: 30,
+    maxSessions: 10,
+    onEvent: (event) => events.push(event),
+  });
+
+  await registry.add('session-a', resources());
+  await registry.close('session-a', 'explicit');
+
+  assert.deepEqual(events, [
+    { type: 'created', sessionId: 'session-a', activeSessions: 1 },
+    { type: 'closed', sessionId: 'session-a', activeSessions: 0, reason: 'explicit' },
+  ]);
+});

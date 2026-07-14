@@ -24,6 +24,18 @@ type CreateMetaAdsAppOptions<TTransport extends ManagedTransport, TServer extend
   authMiddleware: RequestHandler;
   rateLimiter: RequestHandler;
   sweepIntervalMs?: number;
+  sessionAlertThreshold?: number;
+  heapAlertBytes?: number;
+  getProcessDiagnostics?: () => ProcessDiagnostics;
+};
+
+type ProcessDiagnostics = {
+  uptimeSeconds: number;
+  memory: {
+    heapUsed: number;
+    heapTotal: number;
+    rss: number;
+  };
 };
 
 export type MetaAdsAppRuntime = {
@@ -44,17 +56,48 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
 ): MetaAdsAppRuntime {
   const app = express();
   const sweepIntervalMs = options.sweepIntervalMs ?? 60_000;
+  const sessionAlertThreshold = options.sessionAlertThreshold ?? 150;
+  const heapAlertBytes = options.heapAlertBytes ?? 300 * 1024 * 1024;
+  const getProcessDiagnostics = options.getProcessDiagnostics ?? (() => {
+    const memory = process.memoryUsage();
+    return {
+      uptimeSeconds: process.uptime(),
+      memory: {
+        heapUsed: memory.heapUsed,
+        heapTotal: memory.heapTotal,
+        rss: memory.rss,
+      },
+    };
+  });
   let closing: Promise<void> | undefined;
 
   app.use(helmet());
   app.use(loggerMiddleware);
 
   app.get('/health', (_req, res) => {
+    const diagnostics = getProcessDiagnostics();
+    const stats = options.registry.stats;
+    const degraded = options.registry.size >= sessionAlertThreshold
+      || diagnostics.memory.heapUsed >= heapAlertBytes;
+
     res.status(200).json({
-      status: 'healthy',
+      status: degraded ? 'degraded' : 'healthy',
       service: 'meta-ads-mcp-server',
       version: '1.0.0',
       timestamp: new Date().toISOString(),
+      uptime_seconds: Math.floor(diagnostics.uptimeSeconds),
+      memory: {
+        heap_used_bytes: diagnostics.memory.heapUsed,
+        heap_total_bytes: diagnostics.memory.heapTotal,
+        rss_bytes: diagnostics.memory.rss,
+        alert_threshold_bytes: heapAlertBytes,
+      },
+      sessions: {
+        active: options.registry.size,
+        capacity: options.registry.capacity,
+        alert_threshold: sessionAlertThreshold,
+        ...stats,
+      },
     });
   });
 

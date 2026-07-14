@@ -11,6 +11,12 @@ import { createConfiguredHttpServer, shutdownHttpServer } from './http-server.js
 const registry = new SessionRegistry<StreamableHTTPServerTransport, ReturnType<typeof createMcpServer>>({
   idleTtlMs: 30 * 60 * 1000,
   maxSessions: 250,
+  onEvent: (event) => {
+    console.log(
+      `[MCP] session_event=${event.type} session_id=${event.sessionId} `
+      + `active_sessions=${event.activeSessions}${event.reason ? ` reason=${event.reason}` : ''}`,
+    );
+  },
 });
 const runtime = createMetaAdsApp({
   registry,

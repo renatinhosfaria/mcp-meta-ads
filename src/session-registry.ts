@@ -22,10 +22,18 @@ export type SessionRegistryStats = {
   evicted: number;
 };
 
+export type SessionRegistryEvent = {
+  type: 'created' | 'closed';
+  sessionId: string;
+  activeSessions: number;
+  reason?: SessionCloseReason;
+};
+
 type SessionRegistryOptions = {
   idleTtlMs: number;
   maxSessions: number;
   now?: () => number;
+  onEvent?: (event: SessionRegistryEvent) => void;
 };
 
 export class SessionRegistry<TTransport extends Closeable = Closeable, TServer extends Closeable = Closeable> {
@@ -33,6 +41,7 @@ export class SessionRegistry<TTransport extends Closeable = Closeable, TServer e
   private readonly idleTtlMs: number;
   private readonly maxSessions: number;
   private readonly now: () => number;
+  private readonly onEvent?: (event: SessionRegistryEvent) => void;
   private readonly counters: SessionRegistryStats = {
     created: 0,
     closed: 0,
@@ -47,10 +56,15 @@ export class SessionRegistry<TTransport extends Closeable = Closeable, TServer e
     this.idleTtlMs = options.idleTtlMs;
     this.maxSessions = options.maxSessions;
     this.now = options.now ?? Date.now;
+    this.onEvent = options.onEvent;
   }
 
   get size(): number {
     return this.sessions.size;
+  }
+
+  get capacity(): number {
+    return this.maxSessions;
   }
 
   get stats(): SessionRegistryStats {
@@ -92,6 +106,7 @@ export class SessionRegistry<TTransport extends Closeable = Closeable, TServer e
       lastActivityAt: timestamp,
     });
     this.counters.created += 1;
+    this.onEvent?.({ type: 'created', sessionId: id, activeSessions: this.sessions.size });
   }
 
   async sweepExpired(): Promise<number> {
@@ -112,6 +127,12 @@ export class SessionRegistry<TTransport extends Closeable = Closeable, TServer e
     this.counters.closed += 1;
     if (reason === 'expired') this.counters.expired += 1;
     if (reason === 'evicted') this.counters.evicted += 1;
+    this.onEvent?.({
+      type: 'closed',
+      sessionId: id,
+      activeSessions: this.sessions.size,
+      reason,
+    });
 
     await Promise.allSettled([
       Promise.resolve(session.transport.close()),
