@@ -6,6 +6,7 @@ import { rateLimiter } from './middleware/rate-limit.js';
 import { createMcpServer } from './server.js';
 import { createMetaAdsApp } from './app.js';
 import { SessionRegistry } from './session-registry.js';
+import { createConfiguredHttpServer, shutdownHttpServer } from './http-server.js';
 
 const registry = new SessionRegistry<StreamableHTTPServerTransport, ReturnType<typeof createMcpServer>>({
   idleTtlMs: 30 * 60 * 1000,
@@ -22,7 +23,8 @@ const runtime = createMetaAdsApp({
   }),
 });
 
-const httpServer = runtime.app.listen(config.port, '0.0.0.0', () => {
+const httpServer = createConfiguredHttpServer(runtime.app);
+httpServer.listen(config.port, '0.0.0.0', () => {
   console.log(`[SERVER] Meta Ads MCP Server v1.0.0`);
   console.log(`[SERVER] Health: http://0.0.0.0:${config.port}/health`);
   console.log(`[SERVER] MCP:    http://0.0.0.0:${config.port}/mcp`);
@@ -30,11 +32,9 @@ const httpServer = runtime.app.listen(config.port, '0.0.0.0', () => {
 
 async function shutdown(signal: string) {
   console.log(`[SERVER] ${signal} recebido, encerrando graciosamente...`);
-  await runtime.close();
-  httpServer.close(() => {
-    console.log('[SERVER] HTTP server encerrado');
-    process.exit(0);
-  });
+  await shutdownHttpServer(httpServer, runtime);
+  console.log('[SERVER] HTTP server encerrado');
+  process.exit(0);
 }
 
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
