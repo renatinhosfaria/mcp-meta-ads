@@ -28,20 +28,29 @@ export async function shutdownHttpServer(
 ): Promise<void> {
   const closed = new Promise<void>((resolve, reject) => {
     server.close((error) => {
-      if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (error && code !== 'ERR_SERVER_NOT_RUNNING') {
         reject(error);
         return;
       }
       resolve();
     });
   });
-  const forceTimer = setTimeout(() => server.closeAllConnections(), graceMs);
-  forceTimer.unref();
+  let forceTimer: NodeJS.Timeout | undefined;
+  const graceElapsed = new Promise<void>((resolve) => {
+    forceTimer = setTimeout(() => {
+      server.closeAllConnections();
+      resolve();
+    }, graceMs);
+  });
+  const cleanup = Promise.resolve().then(() => runtime.close());
 
   try {
-    await runtime.close();
-    await closed;
+    await Promise.race([
+      Promise.all([cleanup, closed]).then(() => undefined),
+      graceElapsed,
+    ]);
   } finally {
-    clearTimeout(forceTimer);
+    if (forceTimer) clearTimeout(forceTimer);
   }
 }

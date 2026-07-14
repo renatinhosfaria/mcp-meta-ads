@@ -23,7 +23,8 @@ async function reservePort(): Promise<number> {
 }
 
 async function waitForHealth(): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  // Importing the full MCP tool catalog through tsx can be slow on a busy Swarm manager.
+  const deadline = Date.now() + 30_000;
 
   while (Date.now() < deadline) {
     if (server.exitCode !== null) {

@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { loggerMiddleware } from './middleware/logger.js';
-import { SessionRegistry } from './session-registry.js';
+import { SessionRegistry, type SessionCloseReason } from './session-registry.js';
 
 export interface ManagedTransport {
   sessionId?: string;
@@ -70,6 +70,12 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
     };
   });
   let closing: Promise<void> | undefined;
+  const transportCloseReasons = new WeakMap<TTransport, SessionCloseReason>();
+
+  function trackResponseActivity(sessionId: string, res: Response): void {
+    options.registry.startActivity(sessionId);
+    res.once('close', () => options.registry.endActivity(sessionId));
+  }
 
   app.use(helmet());
   app.use(loggerMiddleware);
@@ -114,28 +120,43 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
         return;
       }
 
-      options.registry.touch(sessionId);
+      trackResponseActivity(sessionId, res);
       await session.transport.handleRequest(req, res, req.body);
       return;
     }
 
     if (isInitializeRequest(req.body)) {
       let registration: Promise<void> | undefined;
+      let initializedSessionId: string | undefined;
       let transport!: TTransport;
       const server = options.createServer();
 
       transport = options.createTransport((id) => {
+        initializedSessionId = id;
         registration = options.registry.add(id, { transport, server });
       });
       transport.onclose = () => {
         if (transport.sessionId) {
-          void options.registry.close(transport.sessionId, 'transport');
+          options.registry.closeAfterTransport(
+            transport.sessionId,
+            transportCloseReasons.get(transport) ?? 'transport',
+          );
         }
       };
 
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-      await registration;
+      try {
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        await registration;
+      } catch (error) {
+        if (initializedSessionId) {
+          await registration;
+          await options.registry.close(initializedSessionId, 'explicit');
+        } else {
+          await Promise.resolve().then(() => server.close()).catch(() => undefined);
+        }
+        throw error;
+      }
       return;
     }
 
@@ -154,7 +175,7 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
       return;
     }
 
-    options.registry.touch(sessionId);
+    trackResponseActivity(sessionId, res);
     await session.transport.handleRequest(req, res);
   }));
 
@@ -166,7 +187,8 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
       return;
     }
 
-    options.registry.touch(sessionId);
+    trackResponseActivity(sessionId, res);
+    transportCloseReasons.set(session.transport, 'explicit');
     await session.transport.handleRequest(req, res);
     await options.registry.close(sessionId, 'explicit');
   }));
@@ -174,7 +196,11 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
   app.use(errorHandler);
 
   const sweepTimer = sweepIntervalMs > 0
-    ? setInterval(() => void options.registry.sweepExpired(), sweepIntervalMs)
+    ? setInterval(() => {
+        void options.registry.sweepExpired().catch((error: unknown) => {
+          console.error('[ERROR] session sweep failed', error);
+        });
+      }, sweepIntervalMs)
     : undefined;
   sweepTimer?.unref();
 

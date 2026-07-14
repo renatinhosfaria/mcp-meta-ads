@@ -46,3 +46,23 @@ test('shutdown closes MCP sessions and force-closes lingering HTTP connections a
   assert.equal(server.listening, false);
   request.destroy();
 });
+
+test('shutdown returns after the grace period when MCP session cleanup hangs', async () => {
+  const server = createConfiguredHttpServer(express());
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  let runtimeCloseCalls = 0;
+  const never = new Promise<void>(() => {});
+  const startedAt = Date.now();
+
+  await shutdownHttpServer(server, {
+    close: () => {
+      runtimeCloseCalls += 1;
+      return never;
+    },
+  }, 10);
+
+  assert.equal(runtimeCloseCalls, 1);
+  assert.ok(Date.now() - startedAt < 1_000);
+  assert.equal(server.listening, false);
+});

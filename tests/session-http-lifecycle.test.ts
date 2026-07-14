@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AddressInfo } from 'node:net';
+import { get } from 'node:http';
+import { once } from 'node:events';
 import type { RequestHandler } from 'express';
 import { SessionRegistry } from '../src/session-registry.ts';
 import { createMetaAdsApp, type ManagedServer, type ManagedTransport } from '../src/app.ts';
@@ -9,11 +11,15 @@ const passThrough: RequestHandler = (_req, _res, next) => next();
 
 class FakeServer implements ManagedServer {
   closeCalls = 0;
+  private transport?: ManagedTransport;
 
-  async connect(): Promise<void> {}
+  async connect(transport: ManagedTransport): Promise<void> {
+    this.transport = transport;
+  }
 
   async close(): Promise<void> {
     this.closeCalls += 1;
+    await this.transport?.close();
   }
 }
 
@@ -25,7 +31,7 @@ class FakeTransport implements ManagedTransport {
 
   constructor(private readonly initialize: (id: string) => void) {}
 
-  async handleRequest(_req: unknown, res: any, body?: any): Promise<void> {
+  async handleRequest(req: any, res: any, body?: any): Promise<void> {
     if (this.rejectNext) {
       this.rejectNext = false;
       throw new Error('transport failed');
@@ -34,6 +40,11 @@ class FakeTransport implements ManagedTransport {
     if (!this.sessionId && body?.method === 'initialize') {
       this.sessionId = 'session-test';
       this.initialize(this.sessionId);
+    }
+
+    if (req.method === 'GET') {
+      res.status(200).write('data: connected\n\n');
+      return;
     }
 
     res.status(200).json({ ok: true });
@@ -45,11 +56,13 @@ class FakeTransport implements ManagedTransport {
   }
 }
 
-async function startHarness(now: () => number = Date.now) {
+async function startHarness(now: () => number = Date.now, rejectInitialize = false) {
+  const events: unknown[] = [];
   const registry = new SessionRegistry<FakeTransport, FakeServer>({
     idleTtlMs: 30,
     maxSessions: 10,
     now,
+    onEvent: (event) => events.push(event),
   });
   let transport: FakeTransport | undefined;
   const runtime = createMetaAdsApp({
@@ -60,6 +73,7 @@ async function startHarness(now: () => number = Date.now) {
     createServer: () => new FakeServer(),
     createTransport: (initialize) => {
       transport = new FakeTransport(initialize);
+      transport.rejectNext = rejectInitialize;
       return transport;
     },
   });
@@ -68,7 +82,9 @@ async function startHarness(now: () => number = Date.now) {
   const { port } = httpServer.address() as AddressInfo;
 
   return {
+    port,
     registry,
+    events,
     runtime,
     get transport() {
       assert.ok(transport);
@@ -137,6 +153,37 @@ test('DELETE closes and removes the managed session', async () => {
     assert.equal(response.status, 200);
     assert.equal(harness.registry.size, 0);
     assert.equal(harness.transport.closeCalls, 1);
+    assert.deepEqual(harness.events.at(-1), {
+      type: 'closed',
+      sessionId: 'session-test',
+      activeSessions: 0,
+      reason: 'explicit',
+    });
+  } finally {
+    await harness.close();
+  }
+});
+
+test('an open SSE response prevents idle expiration until the client disconnects', async () => {
+  let now = 0;
+  const harness = await startHarness(() => now);
+
+  try {
+    await harness.request('/mcp', mcpRequest('initialize'));
+    const request = get(`http://127.0.0.1:${harness.port}/mcp`, {
+      headers: { 'mcp-session-id': 'session-test' },
+    });
+    request.on('error', () => {});
+    const [response] = await once(request, 'response');
+
+    now = 31;
+    assert.equal(await harness.registry.sweepExpired(), 0);
+    const disconnected = once(response, 'close');
+    response.destroy();
+    await disconnected;
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    now = 62;
+    assert.equal(await harness.registry.sweepExpired(), 1);
   } finally {
     await harness.close();
   }
@@ -182,4 +229,18 @@ test('runtime close releases all active sessions', async () => {
   assert.equal(harness.registry.size, 0);
   assert.equal(harness.transport.closeCalls, 1);
   await harness.close();
+});
+
+test('failed initialization closes resources that were never registered', async () => {
+  const harness = await startHarness(Date.now, true);
+
+  try {
+    const response = await harness.request('/mcp', mcpRequest('initialize'));
+
+    assert.equal(response.status, 500);
+    assert.equal(harness.registry.size, 0);
+    assert.equal(harness.transport.closeCalls, 1);
+  } finally {
+    await harness.close();
+  }
 });
