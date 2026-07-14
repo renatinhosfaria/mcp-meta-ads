@@ -9,8 +9,8 @@ import { SessionRegistry } from './session-registry.js';
 import { createConfiguredHttpServer, shutdownHttpServer } from './http-server.js';
 
 const registry = new SessionRegistry<StreamableHTTPServerTransport, ReturnType<typeof createMcpServer>>({
-  idleTtlMs: 30 * 60 * 1000,
-  maxSessions: 250,
+  idleTtlMs: config.sessionIdleTtlMs,
+  maxSessions: config.maxSessions,
   onEvent: (event) => {
     console.log(
       `[MCP] session_event=${event.type} session_id=${event.sessionId} `
@@ -22,6 +22,9 @@ const runtime = createMetaAdsApp({
   registry,
   authMiddleware,
   rateLimiter,
+  sessionAlertThreshold: config.sessionAlertThreshold,
+  heapAlertBytes: config.heapAlertBytes,
+  sweepIntervalMs: Math.min(60_000, Math.max(1_000, Math.floor(config.sessionIdleTtlMs / 2))),
   createServer: createMcpServer,
   createTransport: (onSessionInitialized) => new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
@@ -29,7 +32,10 @@ const runtime = createMetaAdsApp({
   }),
 });
 
-const httpServer = createConfiguredHttpServer(runtime.app);
+const httpServer = createConfiguredHttpServer(runtime.app, {
+  keepAliveTimeoutMs: config.httpKeepAliveTimeoutMs,
+  headersTimeoutMs: config.httpHeadersTimeoutMs,
+});
 httpServer.listen(config.port, '0.0.0.0', () => {
   console.log(`[SERVER] Meta Ads MCP Server v1.0.0`);
   console.log(`[SERVER] Health: http://0.0.0.0:${config.port}/health`);
@@ -38,7 +44,7 @@ httpServer.listen(config.port, '0.0.0.0', () => {
 
 async function shutdown(signal: string) {
   console.log(`[SERVER] ${signal} recebido, encerrando graciosamente...`);
-  await shutdownHttpServer(httpServer, runtime);
+  await shutdownHttpServer(httpServer, runtime, config.shutdownGraceMs);
   console.log('[SERVER] HTTP server encerrado');
   process.exit(0);
 }

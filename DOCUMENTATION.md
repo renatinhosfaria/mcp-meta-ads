@@ -319,9 +319,27 @@ curl http://localhost:3200/health
   "status": "healthy",
   "service": "meta-ads-mcp-server",
   "version": "1.0.0",
-  "timestamp": "2025-03-18T12:00:00.000Z"
+  "timestamp": "2026-07-14T12:00:00.000Z",
+  "uptime_seconds": 3600,
+  "memory": {
+    "heap_used_bytes": 104857600,
+    "heap_total_bytes": 134217728,
+    "rss_bytes": 167772160,
+    "alert_threshold_bytes": 314572800
+  },
+  "sessions": {
+    "active": 42,
+    "capacity": 250,
+    "alert_threshold": 150,
+    "created": 50,
+    "closed": 8,
+    "expired": 6,
+    "evicted": 0
+  }
 }
 ```
+
+O endpoint continua respondendo HTTP 200 quando `status` for `degraded`, evitando um ciclo de reinicios do Swarm. O estado degradado indica que o heap ou a quantidade de sessoes atingiu o limite de alerta e deve gerar uma notificacao operacional.
 
 ### POST /mcp
 
@@ -1754,7 +1772,7 @@ Registra cada requisicao HTTP com tempo de resposta.
 
 **Formato:**
 ```
-[2025-03-18T12:00:00.000Z] POST /mcp 200 45ms - 192.168.1.100
+[2026-07-14T12:00:00.000Z] request_id=9f8... POST /mcp 200 45ms - 192.168.1.100
 ```
 
 **Dados registrados:**
@@ -1764,6 +1782,23 @@ Registra cada requisicao HTTP com tempo de resposta.
 - Status code
 - Duracao em milissegundos
 - IP do cliente
+- Correlation ID recebido em `X-Request-Id` ou gerado pelo servidor e devolvido na resposta
+
+### Ciclo de vida das sessoes MCP
+
+As sessoes stateful expiram apos 30 minutos sem atividade por padrao. Cada POST, GET ou DELETE valido atualiza a ultima atividade. O servidor mantem no maximo 250 sessoes; ao atingir a capacidade, encerra primeiro a sessao menos recentemente ativa. Criacao, encerramento explicito, expiracao, eviccao e shutdown geram eventos de log com `session_id`, motivo e total ativo.
+
+| Variavel | Padrao | Descricao |
+|----------|--------|-----------|
+| `MCP_SESSION_IDLE_TTL_MS` | `1800000` | Tempo ocioso antes de expirar uma sessao |
+| `MCP_MAX_SESSIONS` | `250` | Limite absoluto de sessoes em memoria |
+| `MCP_SESSION_ALERT_THRESHOLD` | `150` | Quantidade que torna o health degradado |
+| `MCP_HEAP_ALERT_BYTES` | `314572800` | Heap usado que torna o health degradado |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS` | `95000` | Keep-alive Node, acima dos 90s do Traefik |
+| `HTTP_HEADERS_TIMEOUT_MS` | `100000` | Prazo de headers; deve superar o keep-alive |
+| `SHUTDOWN_GRACE_MS` | `10000` | Prazo antes de forcar o fechamento HTTP |
+
+O deployment deve permanecer com uma replica enquanto as sessoes estiverem em memoria. Mais replicas exigem afinidade de sessao no proxy ou transporte stateless; sem isso, requisicoes subsequentes podem chegar a uma replica que desconhece o `mcp-session-id`.
 
 ### Rate Limiter (`src/middleware/rate-limit.ts`)
 
