@@ -23,7 +23,7 @@ type AudienceUsersPayloadInput = {
   operation: 'add' | 'remove' | 'replace';
   data_source?: string;
   session?: {
-    session_id: string;
+    session_id: number;
     estimated_num_total?: number;
     batch_seq?: number;
     last_batch_flag?: boolean;
@@ -37,7 +37,7 @@ type AudienceUsersPayload = {
     data_source?: string;
   };
   session?: {
-    session_id: string;
+    session_id: number;
     estimated_num_total?: number;
     batch_seq?: number;
     last_batch_flag?: boolean;
@@ -79,6 +79,13 @@ export function buildAudienceUsersPayload(input: AudienceUsersPayloadInput): Aud
 export function getAudiencePaginationLimit(subtypeFilter: string[] | undefined, requestedLimit: number): number {
   return subtypeFilter?.length ? MAX_PAGINATE_ITEMS : requestedLimit;
 }
+
+const audienceSessionIdSchema = z
+  .union([
+    z.number().int().positive(),
+    z.string().regex(/^\d+$/),
+  ])
+  .transform((value) => Number(value));
 
 export function registerAudienceTools(server: McpServer): void {
   server.registerTool(
@@ -373,7 +380,7 @@ export function registerAudienceTools(server: McpServer): void {
     schema: z.array(z.string()).min(1).describe('Schema de identificação da Meta, ex: ["EMAIL"].'),
     users: z.array(z.array(z.union([z.string(), z.number()]))).min(1).describe('Matriz de usuários já normalizados/hash quando aplicável.'),
     data_source: z.string().optional().describe('Origem dos dados enviada no payload.'),
-    session_id: z.string().optional().describe('Session ID para upload em batches.'),
+    session_id: audienceSessionIdSchema.optional().describe('Session ID numérico para upload em batches; aceita inteiro ou string numérica.'),
     estimated_num_total: z.number().int().positive().optional().describe('Total estimado de usuários da sessão.'),
     batch_seq: z.number().int().positive().optional().describe('Sequência do batch na sessão.'),
     last_batch_flag: z.boolean().optional().describe('Se true, marca este batch como o último da sessão.'),
@@ -434,7 +441,7 @@ async function handleAudienceUsersMutation(
     schema: string[];
     users: Array<Array<string | number>>;
     data_source?: string;
-    session_id?: string;
+    session_id?: number;
     estimated_num_total?: number;
     batch_seq?: number;
     last_batch_flag?: boolean;

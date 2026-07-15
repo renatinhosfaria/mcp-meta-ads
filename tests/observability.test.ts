@@ -42,6 +42,12 @@ async function startObservabilityHarness(options: {
       uptimeSeconds: 123,
       memory: { heapUsed: 200, heapTotal: 400, rss: 500 },
     }),
+    deploymentMetadata: {
+      version: '1.0.1',
+      gitSha: '2664678-test',
+      buildTime: '2026-07-15T12:00:00.000Z',
+      deploymentId: 'deploy-contract-test',
+    },
     createServer: () => new NoopServer(),
     createTransport: () => new NoopTransport(),
   });
@@ -94,7 +100,10 @@ test('health exposes session and memory diagnostics and reports degraded thresho
     assert.deepEqual(body, {
       status: 'degraded',
       service: 'meta-ads-mcp-server',
-      version: '1.0.0',
+      version: '1.0.1',
+      git_sha: '2664678-test',
+      build_time: '2026-07-15T12:00:00.000Z',
+      deployment_id: 'deploy-contract-test',
       uptime_seconds: 123,
       memory: {
         heap_used_bytes: 200,

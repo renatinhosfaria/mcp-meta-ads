@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AxiosError, AxiosHeaders } from 'axios';
+import axios, { AxiosError, AxiosHeaders } from 'axios';
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { handleApiError } from '../src/client.ts';
 import { registerAdLibraryTools } from '../src/tools/ad-library.ts';
 import { MAX_PAGINATE_ITEMS } from '../src/constants.ts';
@@ -169,6 +172,140 @@ test('buildAudienceUsersPayload omits is_raw for hashed customer data', () => {
   assert.deepEqual(payload.payload.schema, ['EMAIL']);
   assert.deepEqual(payload.payload.data, [['user@example.com']]);
   assert.equal('is_raw' in payload, false);
+});
+
+test('buildAudienceUsersPayload preserves a numeric session ID', () => {
+  const payload = buildAudienceUsersPayload({
+    schema: ['PHONE'],
+    users: [['a'.repeat(64)]],
+    operation: 'replace',
+    session: {
+      session_id: 1783703797460,
+      estimated_num_total: 1,
+      batch_seq: 1,
+      last_batch_flag: true,
+    },
+  });
+
+  assert.equal(payload.session?.session_id, 1783703797460);
+});
+
+test('audience user tool schema accepts a numeric session ID', () => {
+  const audienceTools = captureTools(registerAudienceTools as never);
+  const tool = audienceTools.get('meta_replace_audience_users');
+
+  assert.ok(tool, 'meta_replace_audience_users should be registered');
+  const input = tool.config.inputSchema.parse({
+    audience_id: 'audience_123',
+    schema: ['PHONE'],
+    users: [['a'.repeat(64)]],
+    session_id: 1783703797460,
+  }) as { session_id: number };
+
+  assert.equal(input.session_id, 1783703797460);
+});
+
+test('audience user tool schema accepts and normalizes a numeric string session ID', () => {
+  const audienceTools = captureTools(registerAudienceTools as never);
+  const tool = audienceTools.get('meta_add_audience_users');
+
+  assert.ok(tool, 'meta_add_audience_users should be registered');
+  const input = tool.config.inputSchema.parse({
+    audience_id: 'audience_123',
+    schema: ['PHONE'],
+    users: [['a'.repeat(64)]],
+    session_id: '1783703797460',
+  }) as { session_id: number };
+
+  assert.equal(input.session_id, 1783703797460);
+});
+
+test('audience user tool schema rejects a non-numeric session ID', () => {
+  const audienceTools = captureTools(registerAudienceTools as never);
+  const tool = audienceTools.get('meta_add_audience_users');
+
+  assert.ok(tool, 'meta_add_audience_users should be registered');
+  assert.throws(() => tool.config.inputSchema.parse({
+    audience_id: 'audience_123',
+    schema: ['PHONE'],
+    users: [['a'.repeat(64)]],
+    session_id: 'batch-one',
+  }));
+});
+
+test('tools/list publishes both accepted session ID input types', async () => {
+  const server = new McpServer({ name: 'audience-contract-test', version: '1.0.0' });
+  registerAudienceTools(server);
+  const client = new Client({ name: 'audience-contract-client', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    const { tools } = await client.listTools();
+    const tool = tools.find(({ name }) => name === 'meta_add_audience_users');
+    assert.ok(tool, 'meta_add_audience_users should be published');
+    const sessionSchema = (tool.inputSchema.properties as Record<string, {
+      anyOf?: Array<{ type?: string }>;
+      type?: string;
+    }>).session_id;
+    const publishedTypes = new Set(
+      sessionSchema.anyOf?.map(({ type }) => type).filter(Boolean)
+        ?? (sessionSchema.type ? [sessionSchema.type] : []),
+    );
+
+    assert.deepEqual(publishedTypes, new Set(['integer', 'string']));
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test('audience handler sends a normalized numeric session ID to the Graph API', async () => {
+  const audienceTools = captureTools(registerAudienceTools as never);
+  const tool = audienceTools.get('meta_add_audience_users');
+  assert.ok(tool, 'meta_add_audience_users should be registered');
+  const input = tool.config.inputSchema.parse({
+    audience_id: 'audience_123',
+    schema: ['PHONE'],
+    users: [['a'.repeat(64)]],
+    session_id: '1783703797460',
+    estimated_num_total: 1,
+    batch_seq: 1,
+    last_batch_flag: true,
+  });
+  const originalAdapter = axios.defaults.adapter;
+  const originalAccessToken = process.env.META_ACCESS_TOKEN;
+  let graphPayload: Record<string, unknown> | undefined;
+  axios.defaults.adapter = async (config) => {
+    graphPayload = (typeof config.data === 'string'
+      ? JSON.parse(config.data)
+      : config.data) as Record<string, unknown>;
+    return {
+      data: { num_received: 1 },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    };
+  };
+  process.env.META_ACCESS_TOKEN = 'contract-test-token';
+
+  try {
+    await tool.handler(input);
+    assert.deepEqual(graphPayload?.session, {
+      session_id: 1783703797460,
+      estimated_num_total: 1,
+      batch_seq: 1,
+      last_batch_flag: true,
+    });
+  } finally {
+    axios.defaults.adapter = originalAdapter;
+    if (originalAccessToken === undefined) delete process.env.META_ACCESS_TOKEN;
+    else process.env.META_ACCESS_TOKEN = originalAccessToken;
+  }
 });
 
 test('getAudiencePaginationLimit over-fetches when subtype_filter is applied', () => {

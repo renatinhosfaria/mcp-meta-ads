@@ -4,6 +4,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { loggerMiddleware } from './middleware/logger.js';
 import { SessionRegistry, type SessionCloseReason } from './session-registry.js';
+import { resolveDeploymentMetadata, type DeploymentMetadata } from './deployment-metadata.js';
 
 export interface ManagedTransport {
   sessionId?: string;
@@ -27,6 +28,7 @@ type CreateMetaAdsAppOptions<TTransport extends ManagedTransport, TServer extend
   sessionAlertThreshold?: number;
   heapAlertBytes?: number;
   getProcessDiagnostics?: () => ProcessDiagnostics;
+  deploymentMetadata?: DeploymentMetadata;
 };
 
 type ProcessDiagnostics = {
@@ -58,6 +60,7 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
   const sweepIntervalMs = options.sweepIntervalMs ?? 60_000;
   const sessionAlertThreshold = options.sessionAlertThreshold ?? 150;
   const heapAlertBytes = options.heapAlertBytes ?? 300 * 1024 * 1024;
+  const deploymentMetadata = options.deploymentMetadata ?? resolveDeploymentMetadata();
   const getProcessDiagnostics = options.getProcessDiagnostics ?? (() => {
     const memory = process.memoryUsage();
     return {
@@ -89,7 +92,10 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
     res.status(200).json({
       status: degraded ? 'degraded' : 'healthy',
       service: 'meta-ads-mcp-server',
-      version: '1.0.0',
+      version: deploymentMetadata.version,
+      git_sha: deploymentMetadata.gitSha,
+      build_time: deploymentMetadata.buildTime,
+      deployment_id: deploymentMetadata.deploymentId,
       timestamp: new Date().toISOString(),
       uptime_seconds: Math.floor(diagnostics.uptimeSeconds),
       memory: {

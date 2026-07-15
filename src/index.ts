@@ -7,6 +7,9 @@ import { createMcpServer } from './server.js';
 import { createMetaAdsApp } from './app.js';
 import { SessionRegistry } from './session-registry.js';
 import { createConfiguredHttpServer, shutdownHttpServer } from './http-server.js';
+import { resolveDeploymentMetadata } from './deployment-metadata.js';
+
+const deploymentMetadata = resolveDeploymentMetadata();
 
 const registry = new SessionRegistry<StreamableHTTPServerTransport, ReturnType<typeof createMcpServer>>({
   idleTtlMs: config.sessionIdleTtlMs,
@@ -24,6 +27,7 @@ const runtime = createMetaAdsApp({
   rateLimiter,
   sessionAlertThreshold: config.sessionAlertThreshold,
   heapAlertBytes: config.heapAlertBytes,
+  deploymentMetadata,
   sweepIntervalMs: Math.min(60_000, Math.max(1_000, Math.floor(config.sessionIdleTtlMs / 2))),
   createServer: createMcpServer,
   createTransport: (onSessionInitialized) => new StreamableHTTPServerTransport({
@@ -37,7 +41,10 @@ const httpServer = createConfiguredHttpServer(runtime.app, {
   headersTimeoutMs: config.httpHeadersTimeoutMs,
 });
 httpServer.listen(config.port, '0.0.0.0', () => {
-  console.log(`[SERVER] Meta Ads MCP Server v1.0.0`);
+  console.log(
+    `[SERVER] Meta Ads MCP Server v${deploymentMetadata.version} `
+    + `git_sha=${deploymentMetadata.gitSha} deployment_id=${deploymentMetadata.deploymentId}`,
+  );
   console.log(`[SERVER] Health: http://0.0.0.0:${config.port}/health`);
   console.log(`[SERVER] MCP:    http://0.0.0.0:${config.port}/mcp`);
 });

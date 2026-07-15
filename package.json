@@ -1,6 +1,6 @@
 {
   "name": "meta-ads-mcp-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP Server for Meta (Facebook/Instagram) Ads Manager — full access to campaigns, ad sets, ads and insights",
   "type": "module",
   "main": "dist/index.js",
