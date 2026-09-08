@@ -250,9 +250,9 @@ API_KEY=<generated-with-openssl-rand-hex-32>
 RATE_LIMIT_RPM=60
 
 META_ACCESS_TOKEN=<META_SYSTEM_USER_TOKEN>
-META_AD_ACCOUNT_ID=act_24036721645944375
+META_AD_ACCOUNT_ID=act_1598606388477916
 META_API_VERSION=v25.0
-META_BUSINESS_ID=1190286072868410
+META_BUSINESS_ID=27138584572479371
 ```
 
 ### Obtendo credenciais da Meta
@@ -1916,6 +1916,7 @@ docker stack deploy -c docker-compose.yml meta-ads
 | `API_KEY is required` | Variavel API_KEY nao definida | Defina `API_KEY` no `.env` |
 | `META_ACCESS_TOKEN nao configurado` | Token da Meta ausente | Defina `META_ACCESS_TOKEN` no `.env` |
 | `META_AD_ACCOUNT_ID nao configurado` | ID da conta ausente | Defina `META_AD_ACCOUNT_ID` no `.env` (formato: `act_XXXXXXXXXX`) |
+| `meta_list_ad_accounts` retorna `total: 0`, mas a consulta direta da conta funciona | `META_BUSINESS_ID` aponta para outro Business Manager; a listagem usa `/{business_id}/owned_ad_accounts` | Confira `business.id` em `meta_get_ad_account`, teste a listagem com esse `business_id` explicito e atualize `.env`, Compose e ambiente do servico em execucao |
 | `Sessao invalida ou ausente` | Requisicao sem session ID | Envie um `initialize` request primeiro para obter o session ID |
 | `Esta operacao exige um Page Access Token` | Tool de Lead Forms exigiu contexto de pagina | Envie `page_access_token` com acesso a pagina/formulario |
 
