@@ -30,7 +30,7 @@ test('account insights sends metric, period, total_value and unix dates', async 
     assert.equal(calls[0].params.period, 'day');
     assert.equal(calls[0].params.metric_type, 'total_value');
     assert.equal(calls[0].params.since, Date.parse('2026-01-01') / 1000);
-    assert.equal(calls[0].params.until, Date.parse('2026-01-08') / 1000);
+    assert.equal(calls[0].params.until, Date.parse('2026-01-09') / 1000);
     assert.equal(calls[0].params.breakdown, 'media_product_type');
     assert.match(String(calls[0].params.metric), /accounts_engaged/);
   });
@@ -42,6 +42,25 @@ test('account insights defaults to the last 7 days', async () => {
     await t.handler({});
     const span = Number(calls[0].params.until) - Number(calls[0].params.since);
     assert.equal(span, 7 * 86400);
+  });
+});
+
+test('account insights: date-only until is inclusive, ISO datetime is exact', async () => {
+  const t = insights().get('meta_ig_get_account_insights')!;
+  await withGraphMock(() => ({ data: [] }), async (calls) => {
+    await t.handler({ since: '2026-01-01', until: '2026-01-30' });
+    assert.equal(calls[0].params.until, Date.parse('2026-01-31') / 1000);
+    await t.handler({ since: '2026-01-01T00:00:00Z', until: '2026-01-05T12:00:00Z' });
+    assert.equal(calls[1].params.until, Date.parse('2026-01-05T12:00:00Z') / 1000);
+  });
+});
+
+test('account insights rejects 31 inclusive days', async () => {
+  const t = insights().get('meta_ig_get_account_insights')!;
+  await withGraphMock(() => ({ data: [] }), async (calls) => {
+    const res = (await t.handler({ since: '2026-01-01', until: '2026-01-31' })) as Err;
+    assert.equal(res.isError, true);
+    assert.equal(calls.length, 0);
   });
 });
 

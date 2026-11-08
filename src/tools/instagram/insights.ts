@@ -30,7 +30,7 @@ export function registerInstagramInsightTools(server: McpServer): void {
     {
       title: 'Métricas da Conta do Instagram',
       description:
-        'Obtém métricas agregadas da conta do Instagram (alcance, visualizações, interações etc.) em um período de até 30 dias. Padrão: últimos 7 dias. Datas no formato YYYY-MM-DD.',
+        'Obtém métricas agregadas da conta do Instagram (alcance, visualizações, interações etc.) em um período de até 30 dias. Padrão: últimos 7 dias. Datas no formato YYYY-MM-DD, em UTC; a data final é inclusiva.',
       inputSchema: z
         .object({
           ig_user_id: igUserIdField,
@@ -46,7 +46,9 @@ export function registerInstagramInsightTools(server: McpServer): void {
       try {
         const ig = resolveIgUserId(ig_user_id);
         const now = Math.floor(Date.now() / 1000);
-        const u = toUnix(until, 'until') ?? now;
+        let u = toUnix(until, 'until') ?? now;
+        // Data sem hora (YYYY-MM-DD) é inclusiva: vira 00:00 UTC do dia seguinte.
+        if (until && /^\d{4}-\d{2}-\d{2}$/.test(until.trim())) u += DAY;
         const s = toUnix(since, 'since') ?? u - 7 * DAY;
         if (s >= u) throw new Error('Intervalo inválido: since deve ser anterior a until.');
         if (u - s > MAX_RANGE_DAYS * DAY) throw new Error('Intervalo inválido: o período máximo é de 30 dias.');
