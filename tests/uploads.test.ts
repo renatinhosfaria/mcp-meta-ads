@@ -149,10 +149,29 @@ test('router: chunked oversize upload (no Content-Length) gets 413 and leaves no
         resolveStatus(res.statusCode!);
       });
       req.on('error', reject);
-      for (let i = 0; i < 6; i++) req.write(Buffer.alloc(500, 3));
+      for (let i = 0; i < 64; i++) req.write(Buffer.alloc(64 * 1024, 3));
       req.end();
     });
     assert.equal(status, 413);
+    assert.deepEqual(files(dataDir), []);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM uploads').get() as any).n, 0);
+  });
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('router: client abort mid-upload leaves no file and no row', async () => {
+  const { store, db, dataDir } = makeStore();
+  await withServer(store, async (base) => {
+    const url = new URL(base);
+    const req = request({ host: url.hostname, port: url.port, path: '/uploads', method: 'POST',
+      headers: { 'content-type': 'video/mp4', 'transfer-encoding': 'chunked' } });
+    req.on('error', () => undefined);
+    req.write(Buffer.alloc(4096, 4));
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(files(dataDir).length, 1);
+    req.destroy();
+    const deadline = Date.now() + 2000;
+    while (files(dataDir).length > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
     assert.deepEqual(files(dataDir), []);
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM uploads').get() as any).n, 0);
   });

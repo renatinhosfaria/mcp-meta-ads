@@ -22,6 +22,11 @@ export function createUploadRouter(uploads: UploadStore, log: (message: string) 
       // A cópia isola o pipeline: se ele falhar, `req` não é destruído e o 413 chega ao cliente.
       const body = new PassThrough();
       req.pipe(body);
+      // pipe() não propaga abort/erro do cliente; sem isto o pipeline do store nunca termina.
+      req.on('error', (err) => body.destroy(err));
+      req.on('close', () => {
+        if (!req.complete) body.destroy(new Error('Upload interrompido pelo cliente.'));
+      });
       const record = await uploads.saveStream(body, mimeType);
       const filename = String(req.headers['x-filename'] ?? '').replace(/[^\w.\- ]/g, '_').slice(0, 100);
       log(`[uploads] ${record.kind} ${record.sizeBytes}B${filename ? ` (${filename})` : ''}`);
