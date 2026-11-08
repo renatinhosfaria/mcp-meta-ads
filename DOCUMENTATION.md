@@ -1959,3 +1959,78 @@ docker stack deploy -c docker-compose.yml meta-ads
 ## Instagram: exclusão de mídia
 
 `meta_ig_delete_media` usa `DELETE /{ig-media-id}`. Conferido em 2026-11-08 na referência oficial de IG Media (https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media): a seção "Deleting" existe, mas só para Instagram API com Facebook Login, e o exemplo de requisição aparece como `POST`. Vale confirmar em conta real. Não vale para anúncios nem para itens individuais de carrossel.
+
+## Instagram
+
+Ferramentas `meta_ig_*` para publicar, moderar comentários, atender o Direct, consultar métricas e receber eventos do Instagram. Configuração na Meta: veja `docs/instagram-setup.md`.
+
+### Conjuntos de ferramentas (`?toolsets=`)
+
+`POST /mcp?toolsets=instagram` (no `initialize`) registra só as ferramentas do Instagram; `toolsets=ads` só as de anúncios; valores separados por vírgula combinam; sem o parâmetro, vêm todas (101 de anúncios + as do Instagram). Valor inválido responde 400.
+
+### Ferramentas
+
+- Conta: `meta_ig_list_accounts`, `meta_ig_get_profile`, `meta_ig_get_publishing_limit`
+- Mídia: `meta_ig_list_media`, `meta_ig_get_media`, `meta_ig_list_stories`, `meta_ig_list_tagged_media`, `meta_ig_set_comments_enabled`, `meta_ig_delete_media`
+- Comentários: `meta_ig_list_comments`, `meta_ig_list_comment_replies`, `meta_ig_comment_on_media`, `meta_ig_reply_comment`, `meta_ig_hide_comment`, `meta_ig_delete_comment`, `meta_ig_get_mention`, `meta_ig_reply_mention`
+- Métricas: `meta_ig_get_account_insights`, `meta_ig_get_media_insights`, `meta_ig_get_follower_demographics`
+- Descoberta: `meta_ig_business_discovery`, `meta_ig_search_hashtag`, `meta_ig_get_hashtag_media`
+- Direct: `meta_ig_list_conversations`, `meta_ig_get_conversation_messages`, `meta_ig_get_message`, `meta_ig_get_user_profile`, `meta_ig_send_message`, `meta_ig_private_reply`, `meta_ig_react_message`, `meta_ig_send_sender_action`, `meta_ig_get_messaging_profile`, `meta_ig_set_ice_breakers`, `meta_ig_set_persistent_menu`, `meta_ig_delete_messaging_profile_fields`
+- Publicação: `meta_ig_publish_photo`, `meta_ig_publish_story`, `meta_ig_publish_reel`, `meta_ig_publish_carousel`, `meta_ig_publish_container`, `meta_ig_get_container_status`
+- Eventos e webhooks: `meta_ig_list_events`, `meta_ig_mark_events_seen`, `meta_ig_add_webhook_destination`, `meta_ig_list_webhook_destinations`, `meta_ig_remove_webhook_destination`, `meta_ig_test_webhook_destination`, `meta_ig_get_page_subscription`, `meta_ig_subscribe_page`
+
+Toda ferramenta aceita `ig_user_id` opcional (padrão `META_IG_USER_ID`); as que usam a Página aceitam `page_id` (padrão `META_PAGE_ID`).
+
+`meta_ig_subscribe_page` descobre o app do token (`GET app`) e recusa se ele for diferente de `META_APP_ID`. Sempre une os campos novos aos já inscritos, então campos como `leadgen` são preservados.
+
+### Upload de mídia
+
+A publicação usa uma URL pública do arquivo. Envie o arquivo cru para `/uploads` (exige `Authorization: Bearer <API_KEY>`):
+
+```bash
+curl --data-binary @video.mp4 -H 'Content-Type: video/mp4' \
+  -H 'Authorization: Bearer SUA_API_KEY' https://SEU_DOMINIO/uploads
+```
+
+- `Content-Type`: `image/jpeg` (até 8 MiB), `video/mp4` ou `video/quicktime` (até 300 MiB). PNG e HEIC devem ser convertidos para JPEG antes.
+- Resposta `201`: `{ "upload_id", "kind", "size_bytes", "expires_at" }`. `413`: arquivo grande demais. `415`: tipo não aceito.
+- Use o `upload_id` nas ferramentas de publicação. O link público (`/media/...`) expira em 48 h ou logo após a publicação bem-sucedida.
+
+### Webhooks de entrada (da Meta)
+
+`GET/POST /webhooks/meta`, públicos (sem Bearer). O `GET` responde ao desafio com `META_WEBHOOK_VERIFY_TOKEN`; o `POST` exige `X-Hub-Signature-256` válido com `META_APP_SECRET`. Sem essas variáveis a rota responde 503. Eventos repetidos são ignorados e ficam guardados 90 dias depois de vistos.
+
+Tipos de evento: `comment`, `live_comment`, `mention`, `story_insights`, `message`, `message_echo`, `message_reaction`, `message_read`, `postback`, `referral`, `unknown`.
+
+### Webhooks de saída (para seus destinos)
+
+Cadastre destinos `https://` com `meta_ig_add_webhook_destination`. O segredo aparece só na resposta da criação. Cada evento é enviado por `POST` com JSON:
+
+```json
+{"version":1,"attempt":1,"event":{"id":"...","version":1,"type":"comment","ig_user_id":"...","occurred_at":"...","received_at":"...","summary":{},"raw":{}}}
+```
+
+Cabeçalhos: `X-Meta-MCP-Event-Id`, `X-Meta-MCP-Timestamp` (segundos Unix) e `X-Meta-MCP-Signature: sha256=<hex>`, onde o hex é `HMAC-SHA256(segredo, "<timestamp>.<corpo bruto>")`.
+
+Resposta 2xx = entregue. Caso contrário há novas tentativas após 30 s, 2 min, 10 min, 30 min, 1 h, 3 h, 6 h e 12 h; depois disso a entrega fica `failed`. A entrega é pelo menos uma vez: o receptor deve ignorar repetições pelo `X-Meta-MCP-Event-Id`.
+
+Verificação em Node (use o corpo bruto, antes de qualquer `JSON.parse`):
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(rawBody, headers, secret) {
+  const ts = headers['x-meta-mcp-timestamp'];
+  if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false; // evita replay
+  const expected = 'sha256=' + createHmac('sha256', secret).update(`${ts}.${rawBody}`).digest('hex');
+  const got = String(headers['x-meta-mcp-signature'] ?? '');
+  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+}
+```
+
+### Limites
+
+- Upload: JPEG até 8 MiB; MP4/MOV até 300 MiB; link vale 48 h.
+- Direct: resposta só dentro de 24 h da última mensagem da pessoa.
+- Busca de hashtag: no máximo 30 hashtags únicas a cada 7 dias.
+- `meta_ig_delete_media`: só com Facebook Login; o exemplo da documentação mostrava `POST`, então confirmar numa conta real.

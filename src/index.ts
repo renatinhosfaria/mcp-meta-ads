@@ -7,6 +7,7 @@ import { createMcpServer } from './server.js';
 import { createMetaAdsApp } from './app.js';
 import { SessionRegistry } from './session-registry.js';
 import { createConfiguredHttpServer, shutdownHttpServer } from './http-server.js';
+import { createInstagramRuntime } from './instagram/runtime.js';
 import { resolveDeploymentMetadata } from './deployment-metadata.js';
 
 const deploymentMetadata = resolveDeploymentMetadata();
@@ -21,15 +22,25 @@ const registry = new SessionRegistry<StreamableHTTPServerTransport, ReturnType<t
     );
   },
 });
+const instagram = createInstagramRuntime({
+  dataDir: config.dataDir,
+  publicBaseUrl: config.publicBaseUrl,
+  appSecret: config.metaAppSecret,
+  verifyToken: config.webhookVerifyToken,
+});
+if (!config.metaAppSecret) console.warn('[SERVER] META_APP_SECRET ausente: POST /webhooks/meta responderá 503');
+if (!config.webhookVerifyToken) console.warn('[SERVER] META_WEBHOOK_VERIFY_TOKEN ausente: GET /webhooks/meta responderá 503');
 const runtime = createMetaAdsApp({
   registry,
   authMiddleware,
+  publicRoutes: instagram.publicRoutes,
+  protectedRoutes: instagram.protectedRoutes,
   rateLimiter,
   sessionAlertThreshold: config.sessionAlertThreshold,
   heapAlertBytes: config.heapAlertBytes,
   deploymentMetadata,
   sweepIntervalMs: Math.min(60_000, Math.max(1_000, Math.floor(config.sessionIdleTtlMs / 2))),
-  createServer: ({ toolsets }) => createMcpServer({ toolsets }),
+  createServer: ({ toolsets }) => createMcpServer({ toolsets, instagram: instagram.deps }),
   createTransport: (onSessionInitialized) => new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: onSessionInitialized,
@@ -47,12 +58,14 @@ httpServer.listen(config.port, '0.0.0.0', () => {
   );
   console.log(`[SERVER] Health: http://0.0.0.0:${config.port}/health`);
   console.log(`[SERVER] MCP:    http://0.0.0.0:${config.port}/mcp`);
+  instagram.start();
 });
 
 async function shutdown(signal: string) {
   console.log(`[SERVER] ${signal} recebido, encerrando graciosamente...`);
   await shutdownHttpServer(httpServer, runtime, config.shutdownGraceMs);
   console.log('[SERVER] HTTP server encerrado');
+  await instagram.stop();
   process.exit(0);
 }
 

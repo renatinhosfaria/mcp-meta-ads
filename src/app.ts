@@ -24,6 +24,10 @@ type CreateMetaAdsAppOptions<TTransport extends ManagedTransport, TServer extend
   createTransport(onSessionInitialized: (id: string) => void): TTransport;
   createServer(context: { toolsets?: Toolset[] }): TServer;
   authMiddleware: RequestHandler;
+  /** Montadas depois de helmet/logger e antes do rate limiter (ex.: webhooks e mídia). */
+  publicRoutes?: RequestHandler[];
+  /** Montadas depois da autenticação e antes de /mcp (ex.: upload). */
+  protectedRoutes?: RequestHandler[];
   rateLimiter: RequestHandler;
   sweepIntervalMs?: number;
   sessionAlertThreshold?: number;
@@ -114,8 +118,10 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
     });
   });
 
+  for (const route of options.publicRoutes ?? []) app.use(route);
   app.use(options.rateLimiter);
   app.use(options.authMiddleware);
+  for (const route of options.protectedRoutes ?? []) app.use(route);
 
   app.post('/mcp', express.json({ limit: '1mb' }), asyncHandler(async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
