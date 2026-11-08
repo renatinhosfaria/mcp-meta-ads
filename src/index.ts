@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { config } from './config.js';
-import { authMiddleware } from './auth.js';
+import { createAuthMiddleware } from './auth.js';
 import { rateLimiter } from './middleware/rate-limit.js';
 import { createMcpServer } from './server.js';
 import { createMetaAdsApp } from './app.js';
@@ -9,6 +9,7 @@ import { SessionRegistry } from './session-registry.js';
 import { createConfiguredHttpServer, shutdownHttpServer } from './http-server.js';
 import { createInstagramRuntime } from './instagram/runtime.js';
 import { resolveDeploymentMetadata } from './deployment-metadata.js';
+import { createProtectedResourceRouter } from './oauth/protected-resource.js';
 
 const deploymentMetadata = resolveDeploymentMetadata();
 
@@ -32,8 +33,8 @@ if (!config.metaAppSecret) console.warn('[SERVER] META_APP_SECRET ausente: POST 
 if (!config.webhookVerifyToken) console.warn('[SERVER] META_WEBHOOK_VERIFY_TOKEN ausente: GET /webhooks/meta responderá 503');
 const runtime = createMetaAdsApp({
   registry,
-  authMiddleware,
-  publicRoutes: instagram.publicRoutes,
+  authMiddleware: createAuthMiddleware({ apiKey: config.apiKey, auth0: config.auth0 }),
+  publicRoutes: [createProtectedResourceRouter(config.auth0), ...instagram.publicRoutes],
   protectedRoutes: instagram.protectedRoutes,
   rateLimiter,
   sessionAlertThreshold: config.sessionAlertThreshold,
