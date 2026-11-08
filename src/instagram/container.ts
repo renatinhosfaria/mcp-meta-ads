@@ -42,19 +42,44 @@ export async function getContainerStatus(containerId: string): Promise<{ status_
   return makeRequest(containerId, 'GET', { fields: 'status_code,status' });
 }
 
+export type ContainerState = { container_id: string; status_code: ContainerStatusCode; status?: string };
+
+/**
+ * Consulta vários contêineres juntos, dividindo um único prazo. Para quando nenhum está IN_PROGRESS
+ * ou quando algum falhou (ERROR, EXPIRED...).
+ */
+export async function waitForContainers(
+  containerIds: string[],
+  opts: { timeoutMs: number; intervalMs?: number; sleep?: Sleep },
+): Promise<ContainerState[]> {
+  const intervalMs = opts.intervalMs ?? 3000;
+  const sleep = opts.sleep ?? defaultSleep;
+  const maxRounds = Math.max(1, Math.ceil(opts.timeoutMs / intervalMs));
+  const states = new Map<string, ContainerState>();
+  const poll = (ids: string[]) =>
+    Promise.all(
+      ids.map(async (id) => {
+        const { status_code, status } = await getContainerStatus(id);
+        states.set(id, { container_id: id, status_code, ...(status ? { status } : {}) });
+      }),
+    );
+  const pending = () => containerIds.filter((id) => states.get(id)?.status_code === 'IN_PROGRESS');
+  const failed = () => containerIds.some((id) => !['IN_PROGRESS', 'FINISHED'].includes(states.get(id)!.status_code));
+
+  await poll(containerIds);
+  for (let round = 1; round < maxRounds && pending().length > 0 && !failed(); round++) {
+    await sleep(intervalMs);
+    await poll(pending());
+  }
+  return containerIds.map((id) => states.get(id)!);
+}
+
 export async function waitForContainer(
   containerId: string,
   opts: { timeoutMs: number; intervalMs?: number; sleep?: Sleep },
 ): Promise<{ status_code: ContainerStatusCode; status?: string }> {
-  const intervalMs = opts.intervalMs ?? 3000;
-  const sleep = opts.sleep ?? defaultSleep;
-  const maxAttempts = Math.max(1, Math.ceil(opts.timeoutMs / intervalMs));
-  let last = await getContainerStatus(containerId);
-  for (let attempt = 1; attempt < maxAttempts && last.status_code === 'IN_PROGRESS'; attempt++) {
-    await sleep(intervalMs);
-    last = await getContainerStatus(containerId);
-  }
-  return last;
+  const [{ status_code, status }] = await waitForContainers([containerId], opts);
+  return { status_code, status };
 }
 
 export async function publishContainer(igUserId: string, containerId: string): Promise<string> {
@@ -64,6 +89,7 @@ export async function publishContainer(igUserId: string, containerId: string): P
 
 export type PublishOutcome =
   | { status: 'PUBLISHED'; media_id: string; permalink?: string }
+  | { status: 'PUBLISHED'; container_id: string; media_id?: string; message: string }
   | { status: 'IN_PROGRESS'; container_id: string; message: string }
   | { status: 'ERROR'; container_id: string; detail: string };
 
@@ -71,8 +97,23 @@ export type PublishOutcome =
 // Se o servidor reiniciar, os uploads expiram sozinhos em 48 h.
 const pendingUploads = new Map<string, string[]>();
 
+// Contêineres publicados por este processo -> media_id, para responder a um publish repetido.
+// A Graph não informa o media_id a partir do contêiner.
+const PUBLISHED_MEMORY = 500;
+const publishedMedia = new Map<string, string>();
+
+function rememberPublished(containerId: string, mediaId: string): void {
+  publishedMedia.set(containerId, mediaId);
+  if (publishedMedia.size > PUBLISHED_MEMORY) publishedMedia.delete(publishedMedia.keys().next().value!);
+}
+
 export function uploadsForContainer(containerId: string): string[] {
   return pendingUploads.get(containerId) ?? [];
+}
+
+async function releaseUploads(containerId: string, uploadStore: UploadStore): Promise<void> {
+  for (const id of uploadsForContainer(containerId)) await uploadStore.remove(id);
+  pendingUploads.delete(containerId);
 }
 
 export async function runPublish(opts: {
@@ -96,7 +137,18 @@ export async function runPublish(opts: {
       message: 'Ainda processando. Chame meta_ig_publish_container com este container_id em alguns instantes.',
     };
   }
-  if (state.status_code !== 'FINISHED' && state.status_code !== 'PUBLISHED') {
+  if (state.status_code === 'PUBLISHED') {
+    // Publicar de novo criaria um post duplicado.
+    await releaseUploads(containerId, uploadStore);
+    const mediaId = publishedMedia.get(containerId);
+    return {
+      status: 'PUBLISHED',
+      container_id: containerId,
+      ...(mediaId ? { media_id: mediaId } : {}),
+      message: 'Este contêiner já foi publicado.',
+    };
+  }
+  if (state.status_code !== 'FINISHED') {
     return {
       status: 'ERROR',
       container_id: containerId,
@@ -104,6 +156,7 @@ export async function runPublish(opts: {
     };
   }
   const mediaId = await publishContainer(igUserId, containerId);
+  rememberPublished(containerId, mediaId);
   let permalink: string | undefined;
   try {
     const media = await makeRequest<{ permalink?: string }>(mediaId, 'GET', { fields: 'permalink' });
@@ -111,7 +164,6 @@ export async function runPublish(opts: {
   } catch {
     permalink = undefined;
   }
-  for (const id of uploadsForContainer(containerId)) await uploadStore.remove(id);
-  pendingUploads.delete(containerId);
+  await releaseUploads(containerId, uploadStore);
   return { status: 'PUBLISHED', media_id: mediaId, permalink };
 }

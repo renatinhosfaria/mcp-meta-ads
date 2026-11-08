@@ -145,3 +145,107 @@ test('publish_story by url video and get_container_status', async () => {
     assert.equal(st.structuredContent?.status_code, 'FINISHED');
   });
 });
+
+const PUBLISH_TOOLS = ['meta_ig_publish_photo', 'meta_ig_publish_carousel', 'meta_ig_publish_reel', 'meta_ig_publish_story', 'meta_ig_publish_container'];
+
+test('wait_seconds tem padrão 20 no schema e no handler', async () => {
+  const { tools } = setup();
+  const schema = tools.get('meta_ig_publish_photo')!.config.inputSchema as { parse: (v: unknown) => Record<string, unknown> };
+  assert.equal(schema.parse({ media: { url: 'https://img.test/a.jpg' } }).wait_seconds, 20);
+  assert.equal(schema.parse({ media: { url: 'https://img.test/a.jpg' }, wait_seconds: 120 }).wait_seconds, 120);
+  await withGraphMock(responder(() => ({ status_code: 'IN_PROGRESS' })), async (calls) => {
+    const res = (await tools.get('meta_ig_publish_photo')!.handler({ media: { url: 'https://img.test/a.jpg' } })) as Res;
+    assert.equal(res.structuredContent?.status, 'IN_PROGRESS');
+    // 20 s com consultas a cada 3 s = 7 consultas
+    assert.equal(calls.filter((c) => c.method === 'GET' && c.url.endsWith('/c1')).length, 7);
+  });
+});
+
+test('descrições das ferramentas de publicação mandam conferir antes de repetir', () => {
+  const { tools } = setup();
+  for (const name of PUBLISH_TOOLS) {
+    const description = String(tools.get(name)!.config.description);
+    assert.match(description, /meta_ig_get_container_status/, name);
+    assert.match(description, /meta_ig_list_media/, name);
+    assert.match(description, /duplicad/, name);
+  }
+});
+
+test('contêiner já PUBLISHED não chama media_publish e limpa o upload', async () => {
+  const { tools, deps } = setup();
+  const up = await deps.uploads.saveBuffer(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), 'image/jpeg');
+  await withGraphMock(responder(() => ({ status_code: 'IN_PROGRESS' })), async () => {
+    await tools.get('meta_ig_publish_photo')!.handler({ media: { upload_id: up.id }, wait_seconds: 3 });
+  });
+  assert.ok(deps.uploads.get(up.id));
+  await withGraphMock(responder(() => ({ status_code: 'PUBLISHED' })), async (calls) => {
+    const res = (await tools.get('meta_ig_publish_container')!.handler({ container_id: 'c1' })) as Res;
+    assert.equal(res.isError, undefined);
+    assert.equal(res.structuredContent?.status, 'PUBLISHED');
+    assert.equal(res.structuredContent?.message, 'Este contêiner já foi publicado.');
+    assert.equal(res.structuredContent?.container_id, 'c1');
+    assert.ok(!calls.some((c) => c.url.endsWith('/media_publish')));
+  });
+  assert.equal(deps.uploads.get(up.id), undefined);
+});
+
+test('publish repetido de um contêiner publicado por este processo devolve o media_id', async () => {
+  const { tools } = setup();
+  await withGraphMock(responder(() => ({ status_code: 'FINISHED' }), { ids: ['c-rep'] }), async () => {
+    const first = (await tools.get('meta_ig_publish_photo')!.handler({ media: { url: 'https://img.test/a.jpg' } })) as Res;
+    assert.equal(first.structuredContent?.media_id, 'm1');
+  });
+  await withGraphMock(responder(() => ({ status_code: 'PUBLISHED' })), async (calls) => {
+    const res = (await tools.get('meta_ig_publish_container')!.handler({ container_id: 'c-rep' })) as Res;
+    assert.equal(res.structuredContent?.status, 'PUBLISHED');
+    assert.equal(res.structuredContent?.media_id, 'm1');
+    assert.ok(!calls.some((c) => c.method === 'POST'));
+  });
+});
+
+function carouselResponder(childStatus: (id: string) => Record<string, unknown>) {
+  const ids = ['c1', 'c2', 'cp'];
+  return (c: GraphCall) => {
+    if (c.method === 'POST' && c.url.endsWith('/ig-1/media')) return { id: ids.shift() ?? 'cx' };
+    if (c.method === 'POST' && c.url.endsWith('/media_publish')) return { id: 'm1' };
+    if (c.url.endsWith('/m1')) return { id: 'm1', permalink: 'https://instagram.com/p/x' };
+    if (c.url.endsWith('/cp')) return { status_code: 'FINISHED' };
+    return childStatus(c.url.split('/').pop()!);
+  };
+}
+const carouselItems = [
+  { media_type: 'image', media: { url: 'https://img.test/a.jpg' } },
+  { media_type: 'video', media: { url: 'https://v.test/a.mp4' } },
+];
+
+test('carrossel cria todos os filhos antes de consultar e divide um único wait_seconds', async () => {
+  const { tools } = setup();
+  await withGraphMock(carouselResponder(() => ({ status_code: 'IN_PROGRESS' })), async (calls) => {
+    const res = (await tools.get('meta_ig_publish_carousel')!.handler({ items: carouselItems, wait_seconds: 6 })) as Res;
+    assert.equal(res.isError, true);
+    const text = res.content[0].text;
+    assert.match(text, /c1: IN_PROGRESS/);
+    assert.match(text, /c2: IN_PROGRESS/);
+    assert.match(text, /Nada foi publicado/);
+    const firstGet = calls.findIndex((c) => c.method === 'GET');
+    assert.deepEqual(calls.slice(0, firstGet).map((c) => c.url.split('/').pop()), ['media', 'media']);
+    // 6 s / 3 s = 2 rodadas para os 2 filhos juntos (não 120 s por filho)
+    assert.equal(calls.filter((c) => c.method === 'GET').length, 4);
+    assert.equal(calls.filter((c) => c.method === 'POST').length, 2);
+  });
+});
+
+test('carrossel com filho em ERROR para logo e lista os status', async () => {
+  const { tools } = setup();
+  await withGraphMock(
+    carouselResponder((id) => (id === 'c2' ? { status_code: 'ERROR', status: 'formato inválido' } : { status_code: 'IN_PROGRESS' })),
+    async (calls) => {
+      const res = (await tools.get('meta_ig_publish_carousel')!.handler({ items: carouselItems, wait_seconds: 60 })) as Res;
+      assert.equal(res.isError, true);
+      assert.match(res.content[0].text, /c1: IN_PROGRESS/);
+      assert.match(res.content[0].text, /c2: ERROR \(formato inválido\)/);
+      assert.equal(calls.filter((c) => c.method === 'GET').length, 2);
+      assert.ok(!calls.some((c) => c.url.endsWith('/media_publish')));
+    },
+  );
+});

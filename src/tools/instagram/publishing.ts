@@ -7,7 +7,7 @@ import {
   getContainerStatus,
   runPublish,
   uploadsForContainer,
-  waitForContainer,
+  waitForContainers,
 } from '../../instagram/container.js';
 import { resolveIgUserId } from '../../instagram/context.js';
 import { mediaInputSchema, resolveMediaSource } from '../../instagram/media-source.js';
@@ -19,13 +19,17 @@ import type { InstagramDeps } from './index.js';
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
+const DEFAULT_WAIT_SECONDS = 20;
 const waitSecondsField = z
   .number()
   .int()
   .min(1)
   .max(120)
-  .default(45)
-  .describe('Segundos a esperar o processamento antes de devolver IN_PROGRESS (1-120, padrão 45).');
+  .default(DEFAULT_WAIT_SECONDS)
+  .describe(`Segundos a esperar o processamento antes de devolver IN_PROGRESS (1-120, padrão ${DEFAULT_WAIT_SECONDS}).`);
+// Repetir uma publicação depois de timeout pode duplicar o post: a Meta pode ter publicado mesmo assim.
+const RETRY_HINT =
+  ' Depois de um timeout ou erro, confira com meta_ig_get_container_status ou meta_ig_list_media antes de tentar de novo, para não criar posts duplicados.';
 const captionField = z.string().optional().describe('Legenda.');
 const locationField = graphId('ID do local (Página do Facebook).').optional();
 const userTagsField = z
@@ -54,13 +58,13 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
   }
 
   const finish = (igUserId: string, containerId: string, waitSeconds: number | undefined, uploads: UploadRecord[]) =>
-    runPublish({ igUserId, containerId, waitSeconds: waitSeconds ?? 45, uploads, uploadStore: deps.uploads, sleep: sleep() });
+    runPublish({ igUserId, containerId, waitSeconds: waitSeconds ?? DEFAULT_WAIT_SECONDS, uploads, uploadStore: deps.uploads, sleep: sleep() });
 
   server.registerTool(
     'meta_ig_publish_photo',
     {
       title: 'Publicar Foto',
-      description: 'Publica uma foto no feed do Instagram (url, upload_id ou base64) e espera o processamento.',
+      description: 'Publica uma foto no feed do Instagram (url, upload_id ou base64) e espera o processamento.' + RETRY_HINT,
       inputSchema: z
         .object({
           media: mediaInputSchema,
@@ -92,7 +96,9 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
     'meta_ig_publish_carousel',
     {
       title: 'Publicar Carrossel',
-      description: 'Publica um carrossel de 2 a 10 itens (fotos e vídeos) no Instagram. Cada item é processado antes do carrossel.',
+      description:
+        'Publica um carrossel de 2 a 10 itens (fotos e vídeos) no Instagram. Cria todos os itens e espera o processamento deles juntos, ' +
+        'dentro de um único wait_seconds; se algum não ficar pronto, nada é publicado.' + RETRY_HINT,
       inputSchema: z
         .object({
           items: z
@@ -115,23 +121,24 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
         const uploads: UploadRecord[] = [];
         const childIds: string[] = [];
         for (const item of items) {
-          let childId: string;
           if (item.media_type === 'image') {
             const img = await imageUrl(item.media);
             uploads.push(...img.uploads);
-            childId = await createContainer(ig, { is_carousel_item: true, image_url: img.url });
+            childIds.push(await createContainer(ig, { is_carousel_item: true, image_url: img.url }));
           } else {
             const vid = await videoContainer(ig, { is_carousel_item: true, media_type: 'VIDEO' }, item.media);
             uploads.push(...vid.uploads);
-            childId = vid.id;
+            childIds.push(vid.id);
           }
-          const state = await waitForContainer(childId, { timeoutMs: 120_000, sleep: sleep() });
-          if (state.status_code !== 'FINISHED') {
-            throw new Error(
-              `O item ${childIds.length + 1} do carrossel ficou em ${state.status_code}${state.status ? `: ${state.status}` : ''}. Nada foi publicado.`
-            );
-          }
-          childIds.push(childId);
+        }
+        const waitSeconds = wait_seconds ?? DEFAULT_WAIT_SECONDS;
+        const states = await waitForContainers(childIds, { timeoutMs: waitSeconds * 1000, sleep: sleep() });
+        if (states.some((st) => st.status_code !== 'FINISHED')) {
+          const list = states.map((st) => `${st.container_id}: ${st.status_code}${st.status ? ` (${st.status})` : ''}`).join('; ');
+          throw new Error(
+            `Nem todos os itens do carrossel ficaram prontos em ${waitSeconds} s. Nada foi publicado. Itens: ${list}. ` +
+            'Confira com meta_ig_get_container_status antes de tentar de novo.'
+          );
         }
         const parentId = await createContainer(ig, {
           media_type: 'CAROUSEL', children: childIds.join(','), caption, location_id, collaborators,
@@ -147,7 +154,7 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
     'meta_ig_publish_reel',
     {
       title: 'Publicar Reel',
-      description: 'Publica um Reel no Instagram. Com upload_id usa upload resumível; com url a Meta baixa o vídeo.',
+      description: 'Publica um Reel no Instagram. Com upload_id usa upload resumível; com url a Meta baixa o vídeo.' + RETRY_HINT,
       inputSchema: z
         .object({
           video: mediaInputSchema.describe('Vídeo (url ou upload_id).'),
@@ -197,7 +204,7 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
     'meta_ig_publish_story',
     {
       title: 'Publicar Story',
-      description: 'Publica um Story (imagem ou vídeo) no Instagram.',
+      description: 'Publica um Story (imagem ou vídeo) no Instagram.' + RETRY_HINT,
       inputSchema: z
         .object({
           story_media_type: z.enum(['image', 'video']).describe('Tipo da mídia do Story.'),
@@ -245,7 +252,9 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
     'meta_ig_publish_container',
     {
       title: 'Publicar Contêiner',
-      description: 'Publica um contêiner já criado, esperando até 10 s pelo processamento. Use depois de um resultado IN_PROGRESS.',
+      description:
+        'Publica um contêiner já criado, esperando até 10 s pelo processamento. Use depois de um resultado IN_PROGRESS. ' +
+        'Se o contêiner já estiver publicado, não publica de novo.' + RETRY_HINT,
       inputSchema: z
         .object({ container_id: graphId('ID do contêiner.'), ig_user_id: igUserIdField })
         .strict(),
