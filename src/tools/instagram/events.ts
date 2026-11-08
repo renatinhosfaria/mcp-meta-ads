@@ -18,7 +18,7 @@ const typesField = z.array(z.enum(EVENT_TYPES)).optional();
 
 const SECRET_WARNING = 'Guarde este segredo agora: ele não será mostrado de novo.';
 
-type SubscribedApp = { id?: string; subscribed_fields?: string[] };
+type SubscribedApp = { id?: string; subscribed_fields?: unknown };
 
 async function pageContext(pageId?: string) {
   const page = resolvePageId(pageId);
@@ -29,17 +29,23 @@ async function pageContext(pageId?: string) {
  * O POST em {page}/subscribed_apps altera a inscrição do app dono do token, então o "antes" precisa ser
  * lido desse mesmo app (GET app), e não de um id vindo do ambiente.
  */
-async function currentFields(page: string, options: { accessToken: string }): Promise<string[]> {
+async function tokenAppId(options: { accessToken: string }): Promise<string> {
   const tokenApp = await makeRequest<{ id?: string }>('app', 'GET', { fields: 'id,name' }, undefined, options);
   if (!tokenApp.id) throw new Error('Não foi possível identificar o app do token da Página.');
   const envAppId = process.env.META_APP_ID;
   if (envAppId && envAppId !== tokenApp.id) {
     throw new Error(`META_APP_ID (${envAppId}) não corresponde ao app do token (${tokenApp.id}). Corrija o .env antes de inscrever a Página.`);
   }
-  const res = await makeRequest<{ data?: SubscribedApp[] }>(`${page}/subscribed_apps`, 'GET', {}, undefined, options);
-  const mine = (res.data ?? []).find((a) => a.id === tokenApp.id);
-  return mine?.subscribed_fields ?? [];
+  return tokenApp.id;
 }
+
+/** Entrada do app na inscrição da Página; undefined se o app ainda não está inscrito. */
+async function appSubscription(page: string, appId: string, options: { accessToken: string }): Promise<SubscribedApp | undefined> {
+  const res = await makeRequest<{ data?: SubscribedApp[] }>(`${page}/subscribed_apps`, 'GET', {}, undefined, options);
+  return (res.data ?? []).find((a) => a.id === appId);
+}
+
+const fieldList = (fields: string[]) => (fields.length > 0 ? fields.join(', ') : '(nenhum)');
 
 export function registerInstagramEventTools(server: McpServer, deps: InstagramDeps): void {
   server.registerTool(
@@ -208,11 +214,37 @@ export function registerInstagramEventTools(server: McpServer, deps: InstagramDe
       try {
         const { fields, page_id } = input as { fields: string[]; page_id?: string };
         const { page, options } = await pageContext(page_id);
-        const before = await currentFields(page, options);
+        const appId = await tokenAppId(options);
+        const current = await appSubscription(page, appId, options);
+        if (current && !Array.isArray(current.subscribed_fields)) {
+          // Sem a lista atual, o POST poderia apagar campos (como o leadgen do CRM).
+          throw new Error(
+            `A inscrição do app ${appId} na Página ${page} veio sem subscribed_fields em forma de lista. ` +
+            'Nada foi alterado; confira com meta_ig_get_page_subscription.'
+          );
+        }
+        const before = (current?.subscribed_fields as string[] | undefined) ?? [];
         const after = [...new Set([...before, ...fields])];
         if (after.length === 0) throw new Error('Nenhum campo para inscrever: informe ao menos um campo em fields.');
         await makeRequest(`${page}/subscribed_apps`, 'POST', { subscribed_fields: after.join(',') }, undefined, options);
-        return toolResult({ antes: before, depois: after });
+
+        const check = await appSubscription(page, appId, options);
+        const confirmed = Array.isArray(check?.subscribed_fields) ? (check.subscribed_fields as string[]) : [];
+        const lost = before.filter((f) => !confirmed.includes(f));
+        if (lost.length > 0) {
+          return {
+            isError: true as const,
+            content: [{
+              type: 'text' as const,
+              text:
+                `ATENÇÃO: depois da inscrição, a Página ${page} PERDEU campos que já estavam inscritos: ${lost.join(', ')}. ` +
+                (lost.includes('leadgen') ? 'Sem o leadgen, os leads param de chegar ao CRM. ' : '') +
+                `Antes: ${fieldList(before)}. Depois: ${fieldList(confirmed)}. ` +
+                'Rode meta_ig_subscribe_page agora com fields incluindo os campos perdidos e confirme com meta_ig_get_page_subscription.',
+            }],
+          };
+        }
+        return toolResult({ antes: before, depois: after, confirmados: confirmed });
       } catch (error) {
         return toolError(error);
       }

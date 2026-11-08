@@ -163,6 +163,68 @@ test('subscribe_page recusa META_APP_ID diferente do app do token e não faz POS
   delete process.env.META_APP_ID;
 });
 
+test('subscribe_page recusa quando o app do token aparece sem subscribed_fields válido e não faz POST', async () => {
+  const { deps } = createTestDeps();
+  const tools = captureTools((s) => registerInstagramEventTools(s as never, deps));
+  for (const entry of [{ id: 'app-1' }, { id: 'app-1', subscribed_fields: 'leadgen' }, { id: 'app-1', subscribed_fields: null }]) {
+    await withGraphMock((c) => {
+      if (c.method === 'GET' && c.url.endsWith('/app')) return { id: 'app-1' };
+      if (c.method === 'GET' && c.url.endsWith('/page-1')) return { access_token: 'page-token' };
+      if (c.method === 'GET' && c.url.endsWith('/subscribed_apps')) return { data: [entry] };
+      return { success: true };
+    }, async (calls) => {
+      const r = (await tools.get('meta_ig_subscribe_page')!.handler({ fields: ['feed'] })) as Res;
+      assert.equal(r.isError, true, JSON.stringify(entry));
+      assert.match(r.content[0].text, /subscribed_fields/);
+      assert.equal(calls.filter((c) => c.method === 'POST').length, 0);
+    });
+  }
+});
+
+test('subscribe_page confere depois do POST que nenhum campo anterior (leadgen) sumiu', async () => {
+  const { deps } = createTestDeps();
+  const tools = captureTools((s) => registerInstagramEventTools(s as never, deps));
+  const run = (afterFields: string[] | undefined) => {
+    let gets = 0;
+    return withGraphMock((c) => {
+      if (c.method === 'GET' && c.url.endsWith('/app')) return { id: 'app-1' };
+      if (c.method === 'GET' && c.url.endsWith('/page-1')) return { access_token: 'page-token' };
+      if (c.method === 'GET' && c.url.endsWith('/subscribed_apps')) {
+        gets++;
+        if (gets === 1) return { data: [{ id: 'app-1', subscribed_fields: ['leadgen', 'feed'] }] };
+        return { data: afterFields ? [{ id: 'app-1', subscribed_fields: afterFields }] : [] };
+      }
+      return { success: true };
+    }, async (calls) => {
+      const r = (await tools.get('meta_ig_subscribe_page')!.handler({ fields: ['comments'] })) as Res;
+      const subscribedAppsGets = calls.filter((c) => c.method === 'GET' && c.url.endsWith('/subscribed_apps')).length;
+      assert.equal(subscribedAppsGets, 2);
+      const postIdx = calls.findIndex((c) => c.method === 'POST');
+      assert.ok(calls.slice(postIdx + 1).some((c) => c.method === 'GET' && c.url.endsWith('/subscribed_apps')));
+      results.push(r);
+    });
+  };
+  const results: Res[] = [];
+  await run(['leadgen', 'feed', 'comments']);
+  await run(['feed', 'comments']);
+  await run(undefined);
+
+  const [ok, lostLeadgen, lostAll] = results;
+  assert.equal(ok.isError, undefined);
+  const okBody = JSON.parse(ok.content[0].text);
+  assert.deepEqual(okBody.depois, ['leadgen', 'feed', 'comments']);
+  assert.deepEqual(okBody.confirmados, ['leadgen', 'feed', 'comments']);
+
+  assert.equal(lostLeadgen.isError, true);
+  assert.match(lostLeadgen.content[0].text, /ATENÇÃO/);
+  assert.match(lostLeadgen.content[0].text, /leadgen/);
+  assert.match(lostLeadgen.content[0].text, /Antes: leadgen, feed/);
+  assert.match(lostLeadgen.content[0].text, /Depois: feed, comments/);
+
+  assert.equal(lostAll.isError, true);
+  assert.match(lostAll.content[0].text, /leadgen, feed/);
+});
+
 test('list_events source=api devolve ids api:', async () => {
   const { deps } = createTestDeps();
   const tools = captureTools((s) => registerInstagramEventTools(s as never, deps));
