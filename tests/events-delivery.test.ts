@@ -118,6 +118,7 @@ test('subscribe_page une com os campos atuais e nunca perde leadgen', async () =
   const { deps } = createTestDeps();
   const tools = captureTools((s) => registerInstagramEventTools(s as never, deps));
   const responder = (c: { method: string; url: string }) => {
+    if (c.method === 'GET' && c.url.endsWith('/app')) return { id: 'app-1' };
     if (c.method === 'GET' && c.url.endsWith('/page-1')) return { access_token: 'page-token' };
     if (c.method === 'GET' && c.url.endsWith('/subscribed_apps')) {
       return { data: [{ id: 'other', subscribed_fields: ['x'] }, { id: 'app-1', subscribed_fields: ['leadgen'] }] };
@@ -135,12 +136,31 @@ test('subscribe_page une com os campos atuais e nunca perde leadgen', async () =
     await tools.get('meta_ig_subscribe_page')!.handler({ fields: [] });
     for (const c of calls.filter((x) => x.method === 'POST')) assert.match(String(c.params.subscribed_fields), /leadgen/);
   });
+  // sem META_APP_ID: usa o app do token
   delete process.env.META_APP_ID;
-  await withGraphMock(responder, async () => {
+  await withGraphMock(responder, async (calls) => {
+    const r = parse(await tools.get('meta_ig_subscribe_page')!.handler({ fields: ['feed'] }));
+    assert.deepEqual(r.depois, ['leadgen', 'feed']);
+    assert.equal(calls.find((c) => c.method === 'POST')!.params.subscribed_fields, 'leadgen,feed');
+  });
+});
+
+test('subscribe_page recusa META_APP_ID diferente do app do token e não faz POST', async () => {
+  process.env.META_APP_ID = 'wrong';
+  const { deps } = createTestDeps();
+  const tools = captureTools((s) => registerInstagramEventTools(s as never, deps));
+  await withGraphMock((c) => {
+    if (c.method === 'GET' && c.url.endsWith('/app')) return { id: 'famachat' };
+    if (c.method === 'GET' && c.url.endsWith('/page-1')) return { access_token: 'page-token' };
+    if (c.method === 'GET' && c.url.endsWith('/subscribed_apps')) return { data: [{ id: 'famachat', subscribed_fields: ['leadgen'] }] };
+    return { success: true };
+  }, async (calls) => {
     const r = (await tools.get('meta_ig_subscribe_page')!.handler({ fields: ['feed'] })) as Res;
     assert.equal(r.isError, true);
-    assert.match(r.content[0].text, /META_APP_ID/);
+    assert.match(r.content[0].text, /META_APP_ID \(wrong\) não corresponde ao app do token \(famachat\)/);
+    assert.equal(calls.filter((c) => c.method === 'POST').length, 0);
   });
+  delete process.env.META_APP_ID;
 });
 
 test('list_events source=api devolve ids api:', async () => {

@@ -25,13 +25,20 @@ async function pageContext(pageId?: string) {
   return { page, options: { accessToken: await getPageAccessToken(page) } };
 }
 
-async function currentFields(page: string, options: { accessToken: string }): Promise<{ apps: SubscribedApp[]; fields: string[] }> {
-  const appId = process.env.META_APP_ID;
-  if (!appId) throw new Error('META_APP_ID não configurado. Defina META_APP_ID no ambiente (ID do app Meta inscrito na Página).');
+/**
+ * O POST em {page}/subscribed_apps altera a inscrição do app dono do token, então o "antes" precisa ser
+ * lido desse mesmo app (GET app), e não de um id vindo do ambiente.
+ */
+async function currentFields(page: string, options: { accessToken: string }): Promise<string[]> {
+  const tokenApp = await makeRequest<{ id?: string }>('app', 'GET', { fields: 'id,name' }, undefined, options);
+  if (!tokenApp.id) throw new Error('Não foi possível identificar o app do token da Página.');
+  const envAppId = process.env.META_APP_ID;
+  if (envAppId && envAppId !== tokenApp.id) {
+    throw new Error(`META_APP_ID (${envAppId}) não corresponde ao app do token (${tokenApp.id}). Corrija o .env antes de inscrever a Página.`);
+  }
   const res = await makeRequest<{ data?: SubscribedApp[] }>(`${page}/subscribed_apps`, 'GET', {}, undefined, options);
-  const apps = res.data ?? [];
-  const mine = apps.find((a) => a.id === appId);
-  return { apps, fields: mine?.subscribed_fields ?? [] };
+  const mine = (res.data ?? []).find((a) => a.id === tokenApp.id);
+  return mine?.subscribed_fields ?? [];
 }
 
 export function registerInstagramEventTools(server: McpServer, deps: InstagramDeps): void {
@@ -201,7 +208,7 @@ export function registerInstagramEventTools(server: McpServer, deps: InstagramDe
       try {
         const { fields, page_id } = input as { fields: string[]; page_id?: string };
         const { page, options } = await pageContext(page_id);
-        const { fields: before } = await currentFields(page, options);
+        const before = await currentFields(page, options);
         const after = [...new Set([...before, ...fields])];
         if (after.length === 0) throw new Error('Nenhum campo para inscrever: informe ao menos um campo em fields.');
         await makeRequest(`${page}/subscribed_apps`, 'POST', { subscribed_fields: after.join(',') }, undefined, options);
