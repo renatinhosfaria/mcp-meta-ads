@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { loggerMiddleware } from './middleware/logger.js';
+import { InvalidToolsetError, parseToolsets, type Toolset } from './toolsets.js';
 import { SessionRegistry, type SessionCloseReason } from './session-registry.js';
 import { resolveDeploymentMetadata, type DeploymentMetadata } from './deployment-metadata.js';
 
@@ -21,7 +22,7 @@ export interface ManagedServer {
 type CreateMetaAdsAppOptions<TTransport extends ManagedTransport, TServer extends ManagedServer> = {
   registry: SessionRegistry<TTransport, TServer>;
   createTransport(onSessionInitialized: (id: string) => void): TTransport;
-  createServer(): TServer;
+  createServer(context: { toolsets?: Toolset[] }): TServer;
   authMiddleware: RequestHandler;
   rateLimiter: RequestHandler;
   sweepIntervalMs?: number;
@@ -135,7 +136,21 @@ export function createMetaAdsApp<TTransport extends ManagedTransport, TServer ex
       let registration: Promise<void> | undefined;
       let initializedSessionId: string | undefined;
       let transport!: TTransport;
-      const server = options.createServer();
+      let toolsets: Toolset[] | undefined;
+      try {
+        toolsets = parseToolsets(req.query.toolsets);
+      } catch (error) {
+        if (error instanceof InvalidToolsetError) {
+          res.status(400).json({
+            jsonrpc: '2.0',
+            error: { code: -32602, message: error.message },
+            id: null,
+          });
+          return;
+        }
+        throw error;
+      }
+      const server = options.createServer({ toolsets });
 
       transport = options.createTransport((id) => {
         initializedSessionId = id;

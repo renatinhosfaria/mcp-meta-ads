@@ -29,7 +29,7 @@ const runtime = createMetaAdsApp({
   heapAlertBytes: config.heapAlertBytes,
   deploymentMetadata,
   sweepIntervalMs: Math.min(60_000, Math.max(1_000, Math.floor(config.sessionIdleTtlMs / 2))),
-  createServer: createMcpServer,
+  createServer: ({ toolsets }) => createMcpServer({ toolsets }),
   createTransport: (onSessionInitialized) => new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: onSessionInitialized,

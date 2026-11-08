@@ -23,38 +23,52 @@ import { registerRuleTools } from './tools/rules.js';
 import { registerBrandSafetyTools } from './tools/brand-safety.js';
 import { registerCustomConversionTools } from './tools/custom-conversions.js';
 import { registerAccountExtrasTools } from './tools/account-extras.js';
+import { registerInstagramTools, type InstagramDeps } from './tools/instagram/index.js';
+import type { Toolset } from './toolsets.js';
 import { SERVICE_VERSION } from './deployment-metadata.js';
 
-export function createMcpServer(): McpServer {
+export interface CreateMcpServerOptions {
+  toolsets?: Toolset[];
+  instagram?: InstagramDeps;
+}
+
+export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer {
   const server = new McpServer({
     name: 'meta-ads-mcp-server',
     version: SERVICE_VERSION,
   });
 
-  registerAccountTools(server);
-  registerCampaignTools(server);
-  registerAdSetTools(server);
-  registerAdTools(server);
-  registerInsightTools(server);
-  registerAdLibraryTools(server);
-  registerAudienceTools(server);
-  registerAssetTools(server);
-  registerCreativeTools(server);
-  registerLeadFormTools(server);
-  registerPreviewTools(server);
-  registerConversionTools(server);
-  registerPageTools(server);
-  registerEntityTools(server);
-  registerDatasetTools(server);
-  registerCatalogTools(server);
-  registerAdvancedInsightTools(server);
-  registerRecommendationTools(server);
-  registerTargetingTools(server);
-  registerReachTools(server);
-  registerRuleTools(server);
-  registerBrandSafetyTools(server);
-  registerCustomConversionTools(server);
-  registerAccountExtrasTools(server);
+  const { toolsets } = options;
+  if (!toolsets || toolsets.includes('ads')) {
+    registerAccountTools(server);
+    registerCampaignTools(server);
+    registerAdSetTools(server);
+    registerAdTools(server);
+    registerInsightTools(server);
+    registerAdLibraryTools(server);
+    registerAudienceTools(server);
+    registerAssetTools(server);
+    registerCreativeTools(server);
+    registerLeadFormTools(server);
+    registerPreviewTools(server);
+    registerConversionTools(server);
+    registerPageTools(server);
+    registerEntityTools(server);
+    registerDatasetTools(server);
+    registerCatalogTools(server);
+    registerAdvancedInsightTools(server);
+    registerRecommendationTools(server);
+    registerTargetingTools(server);
+    registerReachTools(server);
+    registerRuleTools(server);
+    registerBrandSafetyTools(server);
+    registerCustomConversionTools(server);
+    registerAccountExtrasTools(server);
+  }
+
+  if ((!toolsets || toolsets.includes('instagram')) && options.instagram) {
+    registerInstagramTools(server, options.instagram);
+  }
 
   return server;
 }
