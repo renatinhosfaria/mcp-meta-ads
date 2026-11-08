@@ -4,9 +4,12 @@ import { registerInstagramCommentTools } from './comments.js';
 import { registerInstagramDiscoveryTools } from './discovery.js';
 import { registerInstagramInsightTools } from './insights.js';
 import { registerInstagramMediaTools } from './media.js';
+import type { UploadStore } from '../../uploads/upload-store.js';
 
 // Completado pelas Tasks 7, 10 e 11.
-export interface InstagramDeps {}
+export interface InstagramDeps {
+  uploads: UploadStore;
+}
 
 export function registerInstagramTools(server: McpServer, _deps: InstagramDeps): void {
   registerInstagramAccountTools(server);

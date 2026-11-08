@@ -40,7 +40,7 @@ type UploadSourceInput = {
   mime_type?: string;
 };
 
-function decodeBase64Payload(value: string): Buffer {
+export function decodeBase64Payload(value: string): Buffer {
   const normalized = value.replace(/\s+/g, '');
   if (
     normalized.length === 0 ||
