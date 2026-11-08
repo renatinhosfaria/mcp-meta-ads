@@ -17,11 +17,14 @@ const STORY_METRICS = 'reach,views,replies,shares,total_interactions,navigation,
 const DAY = 86400;
 const MAX_RANGE_DAYS = 30;
 
-export function defaultMediaMetrics(mediaProductType: string, _mediaType: string): string[] {
+export function defaultMediaMetrics(mediaProductType: string, mediaType: string): string[] {
   const product = mediaProductType.toUpperCase();
   if (product === 'REELS') return REELS_METRICS.split(',');
   if (product === 'STORY') return STORY_METRICS.split(',');
-  return FEED_METRICS.split(',');
+  const feed = FEED_METRICS.split(',');
+  // Docs listam profile_visits e follows só para FEED e STORY.
+  if (mediaType.toUpperCase() === 'CAROUSEL_ALBUM') return feed.filter((m) => m !== 'profile_visits' && m !== 'follows');
+  return feed;
 }
 
 export function registerInstagramInsightTools(server: McpServer): void {

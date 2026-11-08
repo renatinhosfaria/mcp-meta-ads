@@ -19,7 +19,9 @@ test('registers insight and discovery tools', () => {
 test('defaultMediaMetrics picks list by product type', () => {
   assert.ok(defaultMediaMetrics('REELS', 'VIDEO').includes('ig_reels_avg_watch_time'));
   assert.ok(defaultMediaMetrics('STORY', 'IMAGE').includes('navigation'));
-  assert.ok(defaultMediaMetrics('FEED', 'CAROUSEL_ALBUM').includes('profile_visits'));
+  assert.ok(defaultMediaMetrics('FEED', 'IMAGE').includes('profile_visits'));
+  const carousel = defaultMediaMetrics('FEED', 'CAROUSEL_ALBUM');
+  assert.ok(!carousel.includes('profile_visits') && !carousel.includes('follows') && carousel.includes('reach'));
 });
 
 test('account insights sends metric, period, total_value and unix dates', async () => {
@@ -99,6 +101,18 @@ test('media insights fetches type then default metrics', async () => {
       assert.equal(calls[0].params.fields, 'media_type,media_product_type');
       assert.ok(calls[1].url.endsWith('/m1/insights'));
       assert.equal(calls[1].params.metric, defaultMediaMetrics('REELS', 'VIDEO').join(','));
+    }
+  );
+});
+
+test('media insights on a carousel sends the carousel defaults', async () => {
+  const t = insights().get('meta_ig_get_media_insights')!;
+  await withGraphMock(
+    (c) => (c.url.endsWith('/m2') ? { media_type: 'CAROUSEL_ALBUM', media_product_type: 'FEED' } : { data: [] }),
+    async (calls) => {
+      await t.handler({ media_id: 'm2' });
+      assert.equal(calls[1].params.metric, defaultMediaMetrics('FEED', 'CAROUSEL_ALBUM').join(','));
+      assert.ok(!String(calls[1].params.metric).includes('follows'));
     }
   );
 });
