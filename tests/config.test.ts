@@ -56,3 +56,46 @@ test('loadConfig strips trailing slash and rejects non-https PUBLIC_BASE_URL', (
   assert.equal(loadConfig({ API_KEY: 'k', PUBLIC_BASE_URL: 'https://x.test/' }).publicBaseUrl, 'https://x.test');
   assert.throws(() => loadConfig({ API_KEY: 'k', PUBLIC_BASE_URL: 'http://x.test' }), /PUBLIC_BASE_URL/);
 });
+
+test('loadConfig leaves Auth0 disabled by default', () => {
+  assert.equal(loadConfig({ API_KEY: 'k' }).auth0, undefined);
+});
+
+test('loadConfig builds Auth0 resource configuration and defaults the scope', () => {
+  assert.deepEqual(loadConfig({
+    API_KEY: 'k',
+    AUTH0_ISSUER: 'https://tenant.eu.auth0.com',
+    AUTH0_AUDIENCE: 'https://mcp.example.test',
+    PUBLIC_BASE_URL: 'https://mcp.example.test/',
+  }).auth0, {
+    issuer: 'https://tenant.eu.auth0.com/',
+    audience: 'https://mcp.example.test',
+    resource: 'https://mcp.example.test',
+    scopes: ['mcp:access'],
+  });
+});
+
+test('loadConfig accepts configured Auth0 scopes', () => {
+  assert.deepEqual(loadConfig({
+    API_KEY: 'k',
+    AUTH0_ISSUER: 'https://tenant.auth0.com/',
+    AUTH0_AUDIENCE: 'https://mcp.example.test',
+    AUTH0_RESOURCE: 'https://resource.example.test/',
+    AUTH0_REQUIRED_SCOPES: 'mcp:read mcp:write',
+  }).auth0?.scopes, ['mcp:read', 'mcp:write']);
+});
+
+test('loadConfig rejects partial or non-https Auth0 configuration', () => {
+  assert.throws(() => loadConfig({ API_KEY: 'k', AUTH0_ISSUER: 'https://tenant.auth0.com' }), /AUTH0_ISSUER.*AUTH0_AUDIENCE/);
+  assert.throws(() => loadConfig({ API_KEY: 'k', AUTH0_AUDIENCE: 'https://mcp.example.test' }), /AUTH0_ISSUER.*AUTH0_AUDIENCE/);
+  assert.throws(() => loadConfig({
+    API_KEY: 'k', AUTH0_ISSUER: 'http://tenant.auth0.com', AUTH0_AUDIENCE: 'https://mcp.example.test',
+  }), /AUTH0_ISSUER/);
+  assert.throws(() => loadConfig({
+    API_KEY: 'k', AUTH0_ISSUER: 'https://tenant.auth0.com', AUTH0_AUDIENCE: 'mcp-example',
+  }), /AUTH0_AUDIENCE/);
+  assert.throws(() => loadConfig({
+    API_KEY: 'k', AUTH0_ISSUER: 'https://tenant.auth0.com', AUTH0_AUDIENCE: 'https://mcp.example.test',
+    AUTH0_RESOURCE: 'http://mcp.example.test',
+  }), /AUTH0_RESOURCE/);
+});
