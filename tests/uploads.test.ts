@@ -3,6 +3,7 @@ import { existsSync, readdirSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import test from 'node:test';
+import { request } from 'node:http';
 import express from 'express';
 
 const { UploadStore, UploadTooLargeError, UnsupportedMediaTypeError, UPLOAD_TTL_MS } = await import('../src/uploads/upload-store.ts');
@@ -11,10 +12,10 @@ const { mediaInputSchema, resolveMediaSource } = await import('../src/instagram/
 const { openDatabase } = await import('../src/storage/database.ts');
 const { createTestDeps } = await import('./helpers/instagram-deps.ts');
 
-function makeStore(now?: () => number) {
+function makeStore(now?: () => number, limits?: any) {
   const { dataDir } = createTestDeps();
   const db = openDatabase(dataDir);
-  const store = new UploadStore({ db, dataDir, publicBaseUrl: 'https://example.test', now });
+  const store = new UploadStore({ db, dataDir, publicBaseUrl: 'https://example.test', now, limits });
   return { store, db, dataDir };
 }
 const files = (dir: string) => (existsSync(`${dir}/uploads`) ? readdirSync(`${dir}/uploads`) : []);
@@ -133,6 +134,38 @@ test('router: oversized upload returns 413 and leaves nothing', async () => {
     assert.equal(res.status, 413);
     assert.deepEqual(files(dataDir), []);
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM uploads').get() as any).n, 0);
+  });
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('router: chunked oversize upload (no Content-Length) gets 413 and leaves nothing', async () => {
+  const { store, db, dataDir } = makeStore(undefined, { 'video/mp4': { kind: 'video', ext: 'mp4', maxBytes: 1000 } });
+  await withServer(store, async (base) => {
+    const url = new URL(base);
+    const status = await new Promise<number>((resolveStatus, reject) => {
+      const req = request({ host: url.hostname, port: url.port, path: '/uploads', method: 'POST',
+        headers: { 'content-type': 'video/mp4', 'transfer-encoding': 'chunked' } }, (res) => {
+        res.resume();
+        resolveStatus(res.statusCode!);
+      });
+      req.on('error', reject);
+      for (let i = 0; i < 6; i++) req.write(Buffer.alloc(500, 3));
+      req.end();
+    });
+    assert.equal(status, 413);
+    assert.deepEqual(files(dataDir), []);
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM uploads').get() as any).n, 0);
+  });
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('router: media supports Range requests', async () => {
+  const { store, dataDir } = makeStore();
+  const rec = await store.saveBuffer(Buffer.from('0123456789'), 'video/mp4');
+  await withServer(store, async (base) => {
+    const res = await fetch(`${base}/media/${rec.fileName}`, { headers: { range: 'bytes=0-3' } });
+    assert.equal(res.status, 206);
+    assert.equal(Buffer.from(await res.arrayBuffer()).toString(), '0123');
   });
   rmSync(dataDir, { recursive: true, force: true });
 });

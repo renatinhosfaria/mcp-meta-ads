@@ -35,16 +35,18 @@ export class UploadStore {
   private readonly dir: string;
   private readonly publicBaseUrl: string;
   private readonly now: () => number;
+  private readonly limits: typeof UPLOAD_LIMITS;
 
-  constructor(opts: { db: DatabaseSync; dataDir: string; publicBaseUrl: string; now?: () => number }) {
+  constructor(opts: { db: DatabaseSync; dataDir: string; publicBaseUrl: string; now?: () => number; limits?: typeof UPLOAD_LIMITS }) {
     this.db = opts.db;
     this.dir = join(opts.dataDir, 'uploads');
     this.publicBaseUrl = opts.publicBaseUrl.replace(/\/+$/, '');
     this.now = opts.now ?? Date.now;
+    this.limits = opts.limits ?? UPLOAD_LIMITS;
   }
 
-  static limitFor(mimeType: string): { kind: 'image' | 'video'; ext: 'jpg' | 'mp4' | 'mov'; maxBytes: number } {
-    const limit = Object.hasOwn(UPLOAD_LIMITS, mimeType) ? UPLOAD_LIMITS[mimeType] : undefined;
+  limitFor(mimeType: string): { kind: 'image' | 'video'; ext: 'jpg' | 'mp4' | 'mov'; maxBytes: number } {
+    const limit = Object.hasOwn(this.limits, mimeType) ? this.limits[mimeType] : undefined;
     if (!limit) {
       throw new UnsupportedMediaTypeError(
         `Tipo não suportado: ${mimeType}. A Meta só publica fotos em JPEG; converta antes de enviar. Vídeos: MP4 ou MOV.`,
@@ -54,7 +56,7 @@ export class UploadStore {
   }
 
   async saveStream(source: Readable, mimeType: string): Promise<UploadRecord> {
-    const limit = UploadStore.limitFor(mimeType);
+    const limit = this.limitFor(mimeType);
     const { id, fileName, path } = this.allocate(limit.ext);
     let size = 0;
     const counter = new Transform({
@@ -77,7 +79,7 @@ export class UploadStore {
   }
 
   async saveBuffer(buffer: Buffer, mimeType: string): Promise<UploadRecord> {
-    const limit = UploadStore.limitFor(mimeType);
+    const limit = this.limitFor(mimeType);
     if (buffer.length > limit.maxBytes) {
       throw new UploadTooLargeError(`Arquivo maior que o limite de ${limit.maxBytes} bytes para ${mimeType}.`);
     }
