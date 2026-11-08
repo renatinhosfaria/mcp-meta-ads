@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { makeRequest, paginate } from '../../client.js';
 import { resolveIgUserId } from '../../instagram/context.js';
-import { igUserIdField, limitField, toolError, toolResult } from '../../instagram/tool-helpers.js';
+import { graphId, igUserIdField, limitField, toolError, toolResult } from '../../instagram/tool-helpers.js';
 
 export const MEDIA_FIELDS =
   'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count,is_comment_enabled,shortcode';
@@ -53,7 +53,7 @@ export function registerInstagramMediaTools(server: McpServer): void {
     {
       title: 'Detalhes da Publicação',
       description: 'Obtém os detalhes de uma publicação do Instagram, incluindo os itens filhos de carrosséis.',
-      inputSchema: z.object({ media_id: z.string().min(1).describe('ID da mídia.') }).strict(),
+      inputSchema: z.object({ media_id: graphId('ID da mídia.') }).strict(),
       annotations: readOnly,
     },
     async ({ media_id }) => {
@@ -117,7 +117,7 @@ export function registerInstagramMediaTools(server: McpServer): void {
       description: 'Ativa ou desativa os comentários de uma publicação do Instagram.',
       inputSchema: z
         .object({
-          media_id: z.string().min(1).describe('ID da mídia.'),
+          media_id: graphId('ID da mídia.'),
           enabled: z.boolean().describe('true para ativar, false para desativar os comentários.'),
         })
         .strict(),
@@ -139,7 +139,7 @@ export function registerInstagramMediaTools(server: McpServer): void {
       title: 'Excluir Publicação',
       description:
         'Exclui permanentemente uma publicação do Instagram (feed, reel, story ou carrossel inteiro; não funciona para anúncios nem para itens individuais de carrossel). Irreversível.',
-      inputSchema: z.object({ media_id: z.string().min(1).describe('ID da mídia (no carrossel, o ID do contêiner).') }).strict(),
+      inputSchema: z.object({ media_id: graphId('ID da mídia (no carrossel, o ID do contêiner).') }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async ({ media_id }) => {

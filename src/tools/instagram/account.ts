@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { makeRequest } from '../../client.js';
 import { resolveIgUserId, resolvePageId } from '../../instagram/context.js';
-import { igUserIdField, pageIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
+import { graphId, igUserIdField, pageIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
@@ -39,7 +39,7 @@ export function registerInstagramAccountTools(server: McpServer): void {
         'Lista as contas do Instagram acessíveis: as contas da Business Manager (META_BUSINESS_ID) e a conta ligada à Página do Facebook, sem repetições.',
       inputSchema: z
         .object({
-          business_id: z.string().optional().describe('ID da Business Manager. Padrão: META_BUSINESS_ID.'),
+          business_id: graphId('ID da Business Manager. Padrão: META_BUSINESS_ID.').optional(),
           page_id: pageIdField,
         })
         .strict(),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { makeRequest } from '../../client.js';
 import { getPageAccessToken, resolvePageId } from '../../instagram/context.js';
 import { mediaInputSchema, resolveMediaSource } from '../../instagram/media-source.js';
-import { limitField, pageIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
+import { graphId, limitField, pageIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
 import type { InstagramDeps } from './index.js';
 
 const MESSAGE_FIELDS = 'id,created_time,from,to,message,attachments,story,shares,reactions';
@@ -14,7 +14,7 @@ const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: t
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
 const idempotentWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
-const idField = (desc: string) => z.string().min(1).describe(desc);
+const idField = graphId;
 const recipientField = idField('IGSID (ID do usuário no escopo da Página) do destinatário.');
 
 const quickReplySchema = z.object({ title: z.string().min(1).max(20), payload: z.string().min(1).max(1000) }).strict();

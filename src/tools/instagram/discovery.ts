@@ -2,14 +2,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { makeRequest, paginate } from '../../client.js';
 import { resolveIgUserId } from '../../instagram/context.js';
-import { igUserIdField, limitField, toolError, toolResult } from '../../instagram/tool-helpers.js';
+import { graphIdSchema, igUserIdField, limitField, toolError, toolResult } from '../../instagram/tool-helpers.js';
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
 const HASHTAG_MEDIA_FIELDS = 'id,caption,media_type,permalink,timestamp,like_count,comments_count';
 const DISCOVERY_MEDIA_FIELDS = 'id,caption,media_type,permalink,timestamp,like_count,comments_count';
 const USERNAME_RE = /^[A-Za-z0-9._]{1,30}$/;
-const HASHTAG_ID_RE = /^\d+$/;
 
 export function registerInstagramDiscoveryTools(server: McpServer): void {
   server.registerTool(
@@ -40,7 +39,7 @@ export function registerInstagramDiscoveryTools(server: McpServer): void {
       inputSchema: z
         .object({
           ig_user_id: igUserIdField,
-          hashtag_id: z.string().describe('ID numérico da hashtag.'),
+          hashtag_id: graphIdSchema.regex(/^\d+$/, 'hashtag_id inválido: use apenas dígitos.').describe('ID numérico da hashtag.'),
           edge: z.enum(['top', 'recent']).default('top').describe('top (padrão) ou recent.'),
           limit: limitField(50, 25),
         })
@@ -49,7 +48,6 @@ export function registerInstagramDiscoveryTools(server: McpServer): void {
     },
     async ({ ig_user_id, hashtag_id, edge, limit }) => {
       try {
-        if (!HASHTAG_ID_RE.test(hashtag_id)) throw new Error('hashtag_id inválido: use apenas dígitos.');
         const ig = resolveIgUserId(ig_user_id);
         const items = await paginate<Record<string, unknown>>(
           `${hashtag_id}/${edge === 'recent' ? 'recent_media' : 'top_media'}`,

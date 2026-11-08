@@ -144,10 +144,11 @@ test('hashtag_media uses top or recent edge and validates id', async () => {
     assert.ok(calls[0].url.endsWith('/123/recent_media'));
     assert.ok(calls[1].url.endsWith('/123/top_media'));
     assert.equal(calls[0].params.user_id, 'ig-1');
-    const bad = (await t.handler({ hashtag_id: '1/2', edge: 'top', limit: 5 })) as Err;
-    assert.equal(bad.isError, true);
-    assert.equal(calls.length, 2);
   });
+  const schema = t.config.inputSchema as { safeParse: (v: unknown) => { success: boolean } };
+  assert.equal(schema.safeParse({ hashtag_id: '1/2' }).success, false);
+  assert.equal(schema.safeParse({ hashtag_id: 'abc' }).success, false);
+  assert.equal(schema.safeParse({ hashtag_id: '123' }).success, true);
 });
 
 test('business_discovery builds fields and rejects unsafe username', async () => {

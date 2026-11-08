@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { makeRequest, paginate } from '../../client.js';
 import { getPageAccessToken, resolveIgUserId, resolvePageId } from '../../instagram/context.js';
-import { igUserIdField, limitField, pageIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
+import { graphId, igUserIdField, limitField, pageIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
 
 const COMMENT_FIELDS =
   'id,text,username,timestamp,like_count,hidden,parent_id,from{id,username},replies{id,text,username,timestamp,hidden}';
@@ -14,7 +14,7 @@ const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: t
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
 
 const numericId = (desc: string) => z.string().regex(/^\d+$/, 'O ID deve conter apenas dígitos.').describe(desc);
-const idField = (desc: string) => z.string().min(1).describe(desc);
+const idField = graphId;
 
 export function registerInstagramCommentTools(server: McpServer): void {
   server.registerTool(

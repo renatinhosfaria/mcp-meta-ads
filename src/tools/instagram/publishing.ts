@@ -12,7 +12,7 @@ import {
 import { resolveIgUserId } from '../../instagram/context.js';
 import { mediaInputSchema, resolveMediaSource } from '../../instagram/media-source.js';
 import type { MediaInput } from '../../instagram/media-source.js';
-import { igUserIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
+import { graphId, igUserIdField, toolError, toolResult } from '../../instagram/tool-helpers.js';
 import type { UploadRecord } from '../../uploads/upload-store.js';
 import type { InstagramDeps } from './index.js';
 
@@ -27,7 +27,7 @@ const waitSecondsField = z
   .default(45)
   .describe('Segundos a esperar o processamento antes de devolver IN_PROGRESS (1-120, padrão 45).');
 const captionField = z.string().optional().describe('Legenda.');
-const locationField = z.string().optional().describe('ID do local (Página do Facebook).');
+const locationField = graphId('ID do local (Página do Facebook).').optional();
 const userTagsField = z
   .array(z.object({ username: z.string(), x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).strict())
   .optional()
@@ -229,7 +229,7 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
     {
       title: 'Status do Contêiner',
       description: 'Consulta o status de processamento de um contêiner de mídia (IN_PROGRESS, FINISHED, ERROR, EXPIRED, PUBLISHED).',
-      inputSchema: z.object({ container_id: z.string().min(1).describe('ID do contêiner.') }).strict(),
+      inputSchema: z.object({ container_id: graphId('ID do contêiner.') }).strict(),
       annotations: readOnly,
     },
     async ({ container_id }) => {
@@ -247,7 +247,7 @@ export function registerInstagramPublishingTools(server: McpServer, deps: Instag
       title: 'Publicar Contêiner',
       description: 'Publica um contêiner já criado, esperando até 10 s pelo processamento. Use depois de um resultado IN_PROGRESS.',
       inputSchema: z
-        .object({ container_id: z.string().min(1).describe('ID do contêiner.'), ig_user_id: igUserIdField })
+        .object({ container_id: graphId('ID do contêiner.'), ig_user_id: igUserIdField })
         .strict(),
       annotations: write,
     },
