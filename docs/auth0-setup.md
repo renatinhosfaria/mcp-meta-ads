@@ -1,6 +1,6 @@
-# Configuração do OAuth 2.1 com Auth0
+# Configuração direta do OAuth 2.1 com Auth0
 
-Este guia conecta o MCP ao ChatGPT usando Auth0 como Authorization Server. A API key atual continua funcionando para clientes legados. Não cole tokens, client secrets ou valores do `.env` em chats, commits ou screenshots.
+Este guia descreve uma proteção direta do MCP usando Auth0 como Authorization Server. Em produção, o Meta Ads usa o gateway OAuth compartilhado com o AI Memory; para conectar o ChatGPT agora, siga [`docs/gateway-oauth-setup.md`](gateway-oauth-setup.md). A API key atual continua funcionando para clientes legados. Não cole tokens, client secrets ou valores do `.env` em chats, commits ou screenshots.
 
 ## 1. Criar a API no Auth0
 

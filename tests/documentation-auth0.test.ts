@@ -24,3 +24,11 @@ test('main documentation points to Auth0 setup and does not suggest unauthentica
   assert.match(docs, /docs\/auth0-setup\.md/);
   assert.doesNotMatch(docs, /No authentication.*mcp-facebook-ads/i);
 });
+
+test('gateway OAuth guide points ChatGPT to the shared gateway and preserves backend namespacing', async () => {
+  const guide = await readFile(new URL('../docs/gateway-oauth-setup.md', import.meta.url), 'utf8');
+  assert.match(guide, /https:\/\/mcp-auth\.famachat\.com\.br\/mcp/);
+  assert.match(guide, /meta-ads_meta_list_ad_accounts/);
+  assert.match(guide, /META_ADS_AUTH_TOKEN/);
+  assert.match(guide, /ai-memory/);
+});

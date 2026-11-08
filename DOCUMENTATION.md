@@ -2060,4 +2060,6 @@ function verify(rawBody, headers, secret) {
 
 O MCP aceita OAuth 2.1 via Auth0 e mantém a API key Bearer para clientes legados. A configuração completa está em [`docs/auth0-setup.md`](docs/auth0-setup.md).
 
+Em produção, a conexão recomendada usa o gateway OAuth compartilhado com o AI Memory. Veja [`docs/gateway-oauth-setup.md`](docs/gateway-oauth-setup.md) e use `https://mcp-auth.famachat.com.br/mcp`; as ferramentas aparecem com o namespace `meta-ads_`.
+
 Quando OAuth está ativo, o resource server publica `/.well-known/oauth-protected-resource` e protege `/mcp` e `/uploads`. O ChatGPT deve conectar usando OAuth/PKCE; não use `No authentication` e não cole a API key na interface.
