@@ -2055,3 +2055,9 @@ function verify(rawBody, headers, secret) {
 ---
 
 *Documento gerado em marco de 2025. Para a versao mais atualizada, consulte o codigo-fonte do projeto.*
+
+## OAuth 2.1 com Auth0 para ChatGPT
+
+O MCP aceita OAuth 2.1 via Auth0 e mantém a API key Bearer para clientes legados. A configuração completa está em [`docs/auth0-setup.md`](docs/auth0-setup.md).
+
+Quando OAuth está ativo, o resource server publica `/.well-known/oauth-protected-resource` e protege `/mcp` e `/uploads`. O ChatGPT deve conectar usando OAuth/PKCE; não use `No authentication` e não cole a API key na interface.
