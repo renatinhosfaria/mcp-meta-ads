@@ -1886,7 +1886,26 @@ O `docker-compose.yml` esta configurado para deploy em Docker Swarm com Traefik 
 - Certificado TLS via Let's Encrypt
 - Entrypoint: `websecure` (HTTPS)
 
-### Deploy
+### Deploy em producao (`scripts/deploy.sh`)
+
+Hoje o servico NAO roda pelo `docker-compose.yml` (setup antigo de Swarm + Traefik). Em producao e um container `mcp-meta-ads` criado com `docker run` (restart `unless-stopped`, porta `127.0.0.1:3200:3200`, variaveis de `.env`), atras do Nginx.
+
+Rodar da raiz do repositorio, com tudo commitado:
+
+```bash
+scripts/deploy.sh
+```
+
+O script:
+1. recusa rodar sem `.env` ou com alteracoes sem commit em `src/`, `package*.json` ou `Dockerfile`;
+2. guarda a imagem atual (`PREV_IMAGE`) e faz o build de `mcp-meta-ads:<sha>` com `GIT_SHA`, `BUILD_TIME` e `DEPLOYMENT_ID`;
+3. cria o volume `mcp-meta-ads-data` (se nao existir), montado em `/app/data` (`DATA_DIR=/app/data`: SQLite do Instagram e uploads);
+4. para e remove o container antigo e sobe o novo;
+5. espera ate 60 s por `http://127.0.0.1:3200/health`. Se falhar, mostra `docker logs --tail 50`, recria o container com `PREV_IMAGE` (rollback) e termina com codigo 1.
+
+Nginx: os blocos `/webhooks/meta`, `/uploads` e `/media/` estao em `deploy/nginx/mcp-facebook-ads.locations.conf`. Insira-os em `/etc/nginx/sites-available/mcp-facebook-ads.famachat.com.br`, antes de `location / { return 404; }`, e rode `nginx -t && systemctl reload nginx`.
+
+### Deploy antigo (Swarm, nao usado em producao)
 
 ```bash
 # Build da imagem
