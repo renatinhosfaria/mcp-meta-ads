@@ -120,7 +120,7 @@ test('publish_carousel rejects 1 item and builds children then parent with 2', a
   });
 });
 
-test('publish_reel with upload_id uses resumable upload with offset and file_size headers', async () => {
+test('publish_reel with upload_id uses resumable upload with offset, file_size, Content-Length and timeout', async () => {
   const { tools, deps } = setup();
   const up = await deps.uploads.saveBuffer(Buffer.from('00000018667479706d703432', 'hex'), 'video/mp4');
   await withGraphMock(responder(() => ({ status_code: 'FINISHED' })), async (calls) => {
@@ -131,6 +131,9 @@ test('publish_reel with upload_id uses resumable upload with offset and file_siz
     assert.equal(calls[1].headers.offset, '0');
     assert.equal(calls[1].headers.file_size, String(up.sizeBytes));
     assert.equal(calls[1].headers.Authorization, 'OAuth test-token');
+    assert.equal(calls[1].headers['Content-Length'], String(up.sizeBytes));
+    assert.equal(calls[1].headers['Content-Type'], 'application/octet-stream');
+    assert.equal(calls[1].timeout, 10 * 60_000);
     assert.ok(!JSON.stringify(res).includes('test-token'));
   });
   assert.equal(deps.uploads.get(up.id), undefined);

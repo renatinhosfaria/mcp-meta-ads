@@ -25,6 +25,7 @@ export type GraphCall = {
   params: Record<string, unknown>;
   data: unknown;
   headers: Record<string, string>;
+  timeout?: number;
 };
 
 export function metaError(code: number, subcode: number | undefined, message: string): AxiosError {
@@ -63,6 +64,7 @@ export async function withGraphMock(
       headers: Object.fromEntries(
         Object.entries(config.headers?.toJSON?.() ?? config.headers ?? {}).map(([k, v]) => [k, String(v)])
       ),
+      timeout: config.timeout,
     };
     calls.push(call);
     const data = responder(call);

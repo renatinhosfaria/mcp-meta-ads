@@ -6,6 +6,9 @@ import type { UploadRecord, UploadStore } from '../uploads/upload-store.js';
 export type ContainerStatusCode = 'IN_PROGRESS' | 'FINISHED' | 'ERROR' | 'EXPIRED' | 'PUBLISHED';
 type Sleep = (ms: number) => Promise<void>;
 
+// Vídeos de até 300 MiB; sem prazo, um upload travado prenderia a ferramenta para sempre.
+const RUPLOAD_TIMEOUT_MS = 10 * 60_000;
+
 export const defaultSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function createContainer(igUserId: string, body: Record<string, unknown>): Promise<string> {
@@ -29,8 +32,15 @@ export async function createResumableVideoContainer(
   stream.on('error', () => undefined); // o erro real chega pela rejeição do axios.post
   try {
     await axios.post(res.uri, stream, {
-      headers: { Authorization: `OAuth ${getAccessToken()}`, offset: '0', file_size: String(upload.sizeBytes) },
+      headers: {
+        Authorization: `OAuth ${getAccessToken()}`,
+        offset: '0',
+        file_size: String(upload.sizeBytes),
+        'Content-Length': String(upload.sizeBytes),
+        'Content-Type': 'application/octet-stream',
+      },
       maxBodyLength: Infinity,
+      timeout: RUPLOAD_TIMEOUT_MS,
     });
   } finally {
     stream.destroy();
