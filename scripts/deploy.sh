@@ -32,6 +32,10 @@ SHA=$(git rev-parse --short HEAD)
 IMAGE="mcp-meta-ads:$SHA"
 PREV_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$NAME")
 echo "Imagem atual: $PREV_IMAGE -> nova: $IMAGE"
+if ! docker image inspect "$PREV_IMAGE" >/dev/null 2>&1; then
+  echo "ERRO: imagem de rollback $PREV_IMAGE nao existe mais; abortando antes de parar o container." >&2
+  exit 1
+fi
 
 docker build \
   --build-arg GIT_SHA="$SHA" \
@@ -42,16 +46,18 @@ docker build \
 docker volume create "$VOLUME" >/dev/null
 
 docker stop "$NAME" && docker rm "$NAME"
-run_container "$IMAGE"
 
-if wait_healthy; then
+if run_container "$IMAGE" && wait_healthy; then
   echo "OK: $NAME rodando em $IMAGE"
   exit 0
 fi
 
-echo "ERRO: /health nao respondeu em 60 s. Ultimas linhas do log:" >&2
+echo "ERRO: o novo container nao subiu ou /health nao respondeu em 60 s. Ultimas linhas do log:" >&2
 docker logs --tail 50 "$NAME" >&2 || true
-docker rm -f "$NAME" >/dev/null
-run_container "$PREV_IMAGE"
-echo "Rollback feito para $PREV_IMAGE." >&2
-exit 1
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+if run_container "$PREV_IMAGE" >/dev/null; then
+  echo "Rollback feito para $PREV_IMAGE." >&2
+  exit 1
+fi
+echo "ERRO CRITICO: o rollback para $PREV_IMAGE falhou; o servico esta fora do ar." >&2
+exit 2
