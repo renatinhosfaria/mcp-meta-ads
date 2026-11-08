@@ -1955,3 +1955,7 @@ docker stack deploy -c docker-compose.yml meta-ads
 ---
 
 *Documento gerado em marco de 2025. Para a versao mais atualizada, consulte o codigo-fonte do projeto.*
+
+## Instagram: exclusão de mídia
+
+`meta_ig_delete_media` usa `DELETE /{ig-media-id}`. Conferido em 2026-11-08 na referência oficial de IG Media (https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media): a seção "Deleting" existe, mas só para Instagram API com Facebook Login, e o exemplo de requisição aparece como `POST`. Vale confirmar em conta real. Não vale para anúncios nem para itens individuais de carrossel.
