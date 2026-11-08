@@ -44,3 +44,15 @@ test('loadConfig rejects invalid timeout relationships', () => {
     HTTP_HEADERS_TIMEOUT_MS: '90000',
   }), /HTTP_HEADERS_TIMEOUT_MS must be greater/);
 });
+
+test('loadConfig applies Instagram defaults', () => {
+  const c = loadConfig({ API_KEY: 'k' });
+  assert.equal(c.dataDir, './data');
+  assert.equal(c.publicBaseUrl, 'https://mcp-facebook-ads.famachat.com.br');
+  assert.equal(c.metaAppSecret, undefined);
+});
+
+test('loadConfig strips trailing slash and rejects non-https PUBLIC_BASE_URL', () => {
+  assert.equal(loadConfig({ API_KEY: 'k', PUBLIC_BASE_URL: 'https://x.test/' }).publicBaseUrl, 'https://x.test');
+  assert.throws(() => loadConfig({ API_KEY: 'k', PUBLIC_BASE_URL: 'http://x.test' }), /PUBLIC_BASE_URL/);
+});

@@ -37,6 +37,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv) {
     throw new Error('HTTP_HEADERS_TIMEOUT_MS must be greater than HTTP_KEEP_ALIVE_TIMEOUT_MS');
   }
 
+  const publicBaseUrl = (environment.PUBLIC_BASE_URL || 'https://mcp-facebook-ads.famachat.com.br').replace(/\/+$/, '');
+  if (!publicBaseUrl.startsWith('https://')) {
+    throw new Error('PUBLIC_BASE_URL must start with https://');
+  }
+
   return {
     port: positiveInteger(environment, 'PORT', 3200),
     apiKey,
@@ -44,6 +49,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv) {
     metaAccessToken: environment.META_ACCESS_TOKEN,
     metaAdAccountId: environment.META_AD_ACCOUNT_ID,
     metaApiVersion: environment.META_API_VERSION || 'v21.0',
+    metaAppSecret: environment.META_APP_SECRET,
+    webhookVerifyToken: environment.META_WEBHOOK_VERIFY_TOKEN,
+    dataDir: environment.DATA_DIR || './data',
+    publicBaseUrl,
     sessionIdleTtlMs: positiveInteger(environment, 'MCP_SESSION_IDLE_TTL_MS', 30 * 60 * 1000),
     maxSessions,
     sessionAlertThreshold,
