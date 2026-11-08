@@ -104,6 +104,34 @@ export function handleApiError(error: unknown): string {
       const subcode = metaError.error_subcode as number | undefined;
       const detail = metaError.error_user_msg || msg;
 
+      if (subcode === 2018278 || subcode === 2534022 || /outside of allowed window/i.test(msg)) {
+        return (
+          `Erro: A janela de 24 horas para responder esta conversa no Direct já fechou. ` +
+          `Só é possível responder depois que a pessoa mandar uma nova mensagem. ` +
+          `Detalhes: ${detail}`
+        );
+      }
+      if (subcode === 2207042) {
+        return (
+          `Erro: Limite de publicações via API atingido nas últimas 24 horas. ` +
+          `Consulte meta_ig_get_publishing_limit. ` +
+          `Detalhes: ${detail}`
+        );
+      }
+      if (subcode === 2207027 || code === 9007) {
+        return (
+          `Erro: A mídia ainda não está pronta para publicar. ` +
+          `Consulte meta_ig_get_container_status e tente de novo. ` +
+          `Detalhes: ${detail}`
+        );
+      }
+      if ((code === 10 || code === 200) && /instagram/i.test(msg)) {
+        return (
+          `Erro: O token não tem a permissão de Instagram necessária. ` +
+          `Veja docs/instagram-setup.md. ` +
+          `Detalhes: ${detail}`
+        );
+      }
       if (/Page Access Token/i.test(msg)) {
         return (
           `Erro: Esta operação exige um Page Access Token. ` +
