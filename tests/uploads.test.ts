@@ -159,22 +159,31 @@ test('router: chunked oversize upload (no Content-Length) gets 413 and leaves no
   rmSync(dataDir, { recursive: true, force: true });
 });
 
-test('router: client abort mid-upload leaves no file and no row', async () => {
+test('router: client abort mid-upload leaves no file and no row, and is not logged as an error', async () => {
   const { store, db, dataDir } = makeStore();
-  await withServer(store, async (base) => {
-    const url = new URL(base);
-    const req = request({ host: url.hostname, port: url.port, path: '/uploads', method: 'POST',
-      headers: { 'content-type': 'video/mp4', 'transfer-encoding': 'chunked' } });
-    req.on('error', () => undefined);
-    req.write(Buffer.alloc(4096, 4));
-    await new Promise((r) => setTimeout(r, 150));
-    assert.equal(files(dataDir).length, 1);
-    req.destroy();
-    const deadline = Date.now() + 2000;
-    while (files(dataDir).length > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(files(dataDir), []);
-    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM uploads').get() as any).n, 0);
-  });
+  const errors: unknown[][] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  try {
+    await withServer(store, async (base) => {
+      const url = new URL(base);
+      const req = request({ host: url.hostname, port: url.port, path: '/uploads', method: 'POST',
+        headers: { 'content-type': 'video/mp4', 'transfer-encoding': 'chunked' } });
+      req.on('error', () => undefined);
+      req.write(Buffer.alloc(4096, 4));
+      await new Promise((r) => setTimeout(r, 150));
+      assert.equal(files(dataDir).length, 1);
+      req.destroy();
+      const deadline = Date.now() + 2000;
+      while (files(dataDir).length > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      assert.deepEqual(files(dataDir), []);
+      assert.equal((db.prepare('SELECT COUNT(*) AS n FROM uploads').get() as any).n, 0);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(errors, []);
   rmSync(dataDir, { recursive: true, force: true });
 });
 

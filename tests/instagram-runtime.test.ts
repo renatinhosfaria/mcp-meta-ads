@@ -129,6 +129,42 @@ test('start/stop são seguros e stop fecha o banco', async () => {
   await runtime.stop();
 });
 
+test('start() roda as duas limpezas na hora, além dos intervalos', async () => {
+  const runtime = createInstagramRuntime({ dataDir: mkdtempSync(join(tmpdir(), 'mcp-rt-')), publicBaseUrl: 'https://example.test' });
+  const count = (table: string) => (runtime.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+  try {
+    runtime.db.prepare('INSERT INTO uploads (id, file_name, mime_type, kind, size_bytes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('old-upload', 'old-upload.jpg', 'image/jpeg', 'image', 1, 0, 1);
+    runtime.db.prepare('INSERT INTO events (id, type, ig_user_id, occurred_at, received_at, seen_at, summary_json, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('old-event', 'comment', 'ig', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', '2020-01-02T00:00:00.000Z', '{}', 'null');
+    runtime.start();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(count('uploads'), 0);
+    assert.equal(count('events'), 0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test('falha na limpeza inicial é logada e não derruba start()', async () => {
+  const runtime = createInstagramRuntime({ dataDir: mkdtempSync(join(tmpdir(), 'mcp-rt-')), publicBaseUrl: 'https://example.test' });
+  const logged: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    runtime.deps.uploads.purgeExpired = async () => { throw new Error('disco cheio'); };
+    runtime.deps.events.purgeSeen = () => { throw new Error('banco travado'); };
+    runtime.start();
+    await new Promise((r) => setTimeout(r, 20));
+  } finally {
+    console.error = original;
+    await runtime.stop();
+  }
+  const text = logged.map((args) => args.map((a) => (a instanceof Error ? a.message : String(a))).join(' '));
+  assert.ok(text.some((t) => t.includes('[instagram]') && t.includes('disco cheio')), text.join('\n'));
+  assert.ok(text.some((t) => t.includes('[instagram]') && t.includes('banco travado')), text.join('\n'));
+});
+
 test('tools/list completo: 101 de anúncios e todas as meta_ig_*', async () => {
   const runtime = createInstagramRuntime({ dataDir: mkdtempSync(join(tmpdir(), 'mcp-rt-')), publicBaseUrl: 'https://example.test' });
   try {

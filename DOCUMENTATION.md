@@ -1897,11 +1897,11 @@ scripts/deploy.sh
 ```
 
 O script:
-1. recusa rodar sem `.env` ou com alteracoes sem commit em `src/`, `package*.json` ou `Dockerfile`;
+1. recusa rodar sem `.env` ou com alteracoes sem commit em `src/`, `package*.json`, `Dockerfile` ou `tsconfig.json`;
 2. guarda a imagem atual (`PREV_IMAGE`) e faz o build de `mcp-meta-ads:<sha>` com `GIT_SHA`, `BUILD_TIME` e `DEPLOYMENT_ID`;
 3. cria o volume `mcp-meta-ads-data` (se nao existir), montado em `/app/data` (`DATA_DIR=/app/data`: SQLite do Instagram e uploads);
-4. para e remove o container antigo e sobe o novo;
-5. espera ate 60 s por `http://127.0.0.1:3200/health`. Se falhar, mostra `docker logs --tail 50`, recria o container com `PREV_IMAGE` (rollback) e termina com codigo 1.
+4. para e renomeia o container antigo para `mcp-meta-ads-prev`, depois sobe o novo com limite de 512 MiB;
+5. espera ate 60 s por `http://127.0.0.1:3200/health`. Se falhar, mostra `docker logs --tail 50`, remove o novo, restaura e verifica o container anterior. O deploy termina com codigo 1 quando a restauração fica saudável e com codigo 2 se ela também falhar.
 
 Nginx: os blocos `/webhooks/meta`, `/uploads` e `/media/` estao em `deploy/nginx/mcp-facebook-ads.locations.conf`. Insira-os em `/etc/nginx/sites-available/mcp-facebook-ads.famachat.com.br`, antes de `location / { return 404; }`, e rode `nginx -t && systemctl reload nginx`.
 
@@ -1973,8 +1973,6 @@ docker stack deploy -c docker-compose.yml meta-ads
 
 ---
 
-*Documento gerado em marco de 2025. Para a versao mais atualizada, consulte o codigo-fonte do projeto.*
-
 ## Instagram: exclusão de mídia
 
 `meta_ig_delete_media` usa `DELETE /{ig-media-id}`. Conferido em 2026-11-08 na referência oficial de IG Media (https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media): a seção "Deleting" existe, mas só para Instagram API com Facebook Login, e o exemplo de requisição aparece como `POST`. Vale confirmar em conta real. Não vale para anúncios nem para itens individuais de carrossel.
@@ -1998,7 +1996,7 @@ Ferramentas `meta_ig_*` para publicar, moderar comentários, atender o Direct, c
 - Publicação: `meta_ig_publish_photo`, `meta_ig_publish_story`, `meta_ig_publish_reel`, `meta_ig_publish_carousel`, `meta_ig_publish_container`, `meta_ig_get_container_status`
 - Eventos e webhooks: `meta_ig_list_events`, `meta_ig_mark_events_seen`, `meta_ig_add_webhook_destination`, `meta_ig_list_webhook_destinations`, `meta_ig_remove_webhook_destination`, `meta_ig_test_webhook_destination`, `meta_ig_get_page_subscription`, `meta_ig_subscribe_page`
 
-Toda ferramenta aceita `ig_user_id` opcional (padrão `META_IG_USER_ID`); as que usam a Página aceitam `page_id` (padrão `META_PAGE_ID`).
+As ferramentas com escopo de conta aceitam `ig_user_id` opcional (padrão `META_IG_USER_ID`). Ferramentas de mídia, comentários e conversas recebem os próprios IDs do recurso; as que usam a Página aceitam `page_id` (padrão `META_PAGE_ID`).
 
 `meta_ig_subscribe_page` descobre o app do token (`GET app`) e recusa se ele for diferente de `META_APP_ID`. Sempre une os campos novos aos já inscritos, então campos como `leadgen` são preservados.
 
@@ -2053,3 +2051,7 @@ function verify(rawBody, headers, secret) {
 - Direct: resposta só dentro de 24 h da última mensagem da pessoa.
 - Busca de hashtag: no máximo 30 hashtags únicas a cada 7 dias.
 - `meta_ig_delete_media`: só com Facebook Login; o exemplo da documentação mostrava `POST`, então confirmar numa conta real.
+
+---
+
+*Documento gerado em marco de 2025. Para a versao mais atualizada, consulte o codigo-fonte do projeto.*

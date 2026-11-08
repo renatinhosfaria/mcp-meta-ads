@@ -49,14 +49,17 @@ export function createInstagramRuntime(cfg: {
     start() {
       if (stopped || timers.length > 0) return;
       delivery.start(DELIVERY_TICK_MS);
+      const run = (fn: () => unknown) => {
+        try {
+          void Promise.resolve(fn()).catch((error: unknown) => console.error('[instagram] tarefa periódica falhou', error));
+        } catch (error) {
+          console.error('[instagram] tarefa periódica falhou', error);
+        }
+      };
+      // Roda já na subida (o intervalo de eventos é de 24 h) e depois periodicamente.
       const every = (ms: number, fn: () => unknown) => {
-        const timer = setInterval(() => {
-          try {
-            void Promise.resolve(fn()).catch((error: unknown) => console.error('[instagram] tarefa periódica falhou', error));
-          } catch (error) {
-            console.error('[instagram] tarefa periódica falhou', error);
-          }
-        }, ms);
+        run(fn);
+        const timer = setInterval(() => run(fn), ms);
         timer.unref();
         timers.push(timer);
       };

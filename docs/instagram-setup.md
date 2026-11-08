@@ -30,7 +30,7 @@ Gere um novo token do usuário de sistema com as permissões de anúncios atuais
 
 No `.env`, troque `META_APP_ID` e `META_APP_SECRET` pelos do app **FamaChat** (Configurações > Básico). Faça isso **antes** do passo 7: a ferramenta de inscrição consulta o app do token e se recusa a continuar se ele for diferente de `META_APP_ID`.
 
-Confira também no `.env`: `META_IG_USER_ID`, `META_PAGE_ID`, `META_WEBHOOK_VERIFY_TOKEN` (um texto secreto qualquer que você inventa, por exemplo `openssl rand -hex 24`), `DATA_DIR` e `PUBLIC_BASE_URL`. Depois reinicie o serviço para carregar tudo.
+Confira também no `.env`: `META_IG_USER_ID`, `META_PAGE_ID`, `META_WEBHOOK_VERIFY_TOKEN` (um texto secreto qualquer que você inventa, por exemplo `openssl rand -hex 24`), `DATA_DIR` e `PUBLIC_BASE_URL`. Depois rode `scripts/deploy.sh` para reconstruir o container e carregar as variáveis (um `docker restart` não relê o `--env-file`).
 
 ## Passo 5. Liberar o acesso às mensagens
 
@@ -55,6 +55,8 @@ meta_ig_subscribe_page com fields:
 ```
 
 Depois rode `meta_ig_get_page_subscription` e confirme que `leadgen` continua na lista junto com os novos.
+
+Se a Graph responder com o erro `#100` dizendo que algum nome de campo não é aceito em `subscribed_fields`, isso é seguro: a inscrição não foi alterada e `leadgen` continua preservado. Leia no próprio erro quais são os valores permitidos, tente novamente com um campo de Página válido e confirme outra vez com `meta_ig_get_page_subscription`.
 
 > Confirmar na documentação atual: a página "Set up Instagram Webhooks" da Meta diz que os campos da inscrição são os escolhidos no painel e remete à tabela "Instagram webhook fields and permissions" para a lista; ela não fixa um único valor obrigatório. Os nomes acima vêm dessa tabela (conferida em 2026-11-08). Os campos de mensagens aparecem como "não disponíveis" para Facebook Login em uma das colunas e são cobertos pela Instagram Messaging API (Messenger Platform), por isso vale conferir no teste real que os eventos de Direct chegam.
 

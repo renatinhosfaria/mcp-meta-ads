@@ -221,6 +221,62 @@ test('router POST: assinatura e idempotência', async () => {
   });
 });
 
+async function withApp(router: express.Router, fn: (url: string) => Promise<void>): Promise<void> {
+  const app = express();
+  app.use(router);
+  const server = app.listen(0);
+  try {
+    await fn(`http://127.0.0.1:${(server.address() as AddressInfo).port}/webhooks/meta`);
+  } finally {
+    server.close();
+  }
+}
+
+test('router POST: falha em onEventStored é logada com id do evento e mensagem, sem o payload', async () => {
+  const store = newStore();
+  const lines: string[] = [];
+  const router = createMetaWebhookRouter({
+    appSecret: 'segredo', events: store, now: () => now, log: (line) => lines.push(line),
+    onEventStored: () => { throw new Error('fila indisponível'); },
+  });
+  await withApp(router, async (url) => {
+    const body = JSON.stringify(commentPayload);
+    const sig = 'sha256=' + createHmac('sha256', 'segredo').update(body).digest('hex');
+    const r = await fetch(url, { method: 'POST', body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': sig } });
+    assert.equal(r.status, 200);
+  });
+  const [event] = store.listUnseen({ limit: 10 }).events;
+  assert.ok(event);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes(event.id), lines[0]);
+  assert.ok(lines[0].includes('fila indisponível'), lines[0]);
+  assert.ok(!lines[0].includes('This is an example.'), lines[0]);
+  assert.ok(!lines[0].includes('segredo'), lines[0]);
+});
+
+test('router: o limite de taxa usa X-Real-IP e não gera avisos do express-rate-limit', async () => {
+  const captured: unknown[][] = [];
+  const original = { error: console.error, warn: console.warn };
+  console.error = (...args: unknown[]) => { captured.push(args); };
+  console.warn = (...args: unknown[]) => { captured.push(args); };
+  try {
+    const router = createMetaWebhookRouter({ verifyToken: 'tok', events: newStore(), onEventStored: () => undefined, rateLimitPerMinute: 2 });
+    await withApp(router, async (url) => {
+      const get = (ip: string) => fetch(`${url}?hub.mode=subscribe&hub.verify_token=tok&hub.challenge=1`, {
+        headers: { 'x-real-ip': ip, 'x-forwarded-for': `${ip}, 10.0.0.1` },
+      });
+      assert.equal((await get('203.0.113.1')).status, 200);
+      assert.equal((await get('203.0.113.1')).status, 200);
+      assert.equal((await get('203.0.113.1')).status, 429);
+      assert.equal((await get('203.0.113.2')).status, 200);
+    });
+  } finally {
+    console.error = original.error;
+    console.warn = original.warn;
+  }
+  assert.deepEqual(captured, []);
+});
+
 test('createTestDeps expõe EventStore', () => {
   const { deps } = createTestDeps();
   assert.ok(deps.events instanceof EventStore);

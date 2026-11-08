@@ -6,6 +6,15 @@ import { UnsupportedMediaTypeError, UploadStore, UploadTooLargeError } from './u
 const DRAIN_CAP_BYTES = 16 * 1024 * 1024;
 const MEDIA_FILE_NAME = /^[A-Za-z0-9_-]{32}\.(jpg|mp4|mov)$/;
 
+class UploadAbortedError extends Error {}
+
+// O cliente desistiu no meio do envio: não é falha do servidor.
+function isClientAbort(error: unknown): boolean {
+  if (error instanceof UploadAbortedError) return true;
+  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+  return code === 'ECONNRESET' || code === 'ERR_STREAM_PREMATURE_CLOSE' || message === 'aborted';
+}
+
 // Montar atrás da autenticação do MCP.
 export function createUploadRouter(uploads: UploadStore, log: (message: string) => void = console.error): express.Router {
   const router = express.Router();
@@ -25,7 +34,7 @@ export function createUploadRouter(uploads: UploadStore, log: (message: string) 
       // pipe() não propaga abort/erro do cliente; sem isto o pipeline do store nunca termina.
       req.on('error', (err) => body.destroy(err));
       req.on('close', () => {
-        if (!req.complete) body.destroy(new Error('Upload interrompido pelo cliente.'));
+        if (!req.complete) body.destroy(new UploadAbortedError('Upload interrompido pelo cliente.'));
       });
       const record = await uploads.saveStream(body, mimeType);
       const filename = String(req.headers['x-filename'] ?? '').replace(/[^\w.\- ]/g, '_').slice(0, 100);
@@ -37,6 +46,10 @@ export function createUploadRouter(uploads: UploadStore, log: (message: string) 
         expires_at: new Date(record.expiresAt).toISOString(),
       });
     } catch (error) {
+      if (isClientAbort(error)) {
+        log('[uploads] envio interrompido pelo cliente; nada foi gravado.');
+        return;
+      }
       if (res.headersSent) return;
       if (error instanceof UnsupportedMediaTypeError) {
         res.status(415).json({ error: error.message });

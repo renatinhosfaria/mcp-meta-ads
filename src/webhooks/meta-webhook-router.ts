@@ -10,13 +10,19 @@ export interface MetaWebhookDeps {
   events: EventStore;
   onEventStored: (event: NormalizedEvent) => void;
   now?: () => Date;
+  log?: (line: string) => void;
+  /** Requisições por minuto e por IP (padrão 600). */
+  rateLimitPerMinute?: number;
 }
 
 export function createMetaWebhookRouter(deps: MetaWebhookDeps): express.Router {
   const router = express.Router();
+  const log = deps.log ?? ((line: string) => console.error(line));
   const limiter = rateLimit({
-    windowMs: 60_000, max: 600, standardHeaders: true, legacyHeaders: false,
+    windowMs: 60_000, max: deps.rateLimitPerMinute ?? 600, standardHeaders: true, legacyHeaders: false,
     message: { error: 'Too many requests, try again later' },
+    // Atrás do Nginx, req.ip é sempre 127.0.0.1; o IP real vem em X-Real-IP (o Nginx sobrescreve o valor do cliente).
+    keyGenerator: (req) => req.header('x-real-ip') || req.ip || 'unknown',
   });
   const raw = express.raw({ type: '*/*', limit: '1mb' });
 
@@ -46,7 +52,12 @@ export function createMetaWebhookRouter(deps: MetaWebhookDeps): express.Router {
     }
     for (const event of normalizeMetaWebhook(payload, (deps.now ?? (() => new Date()))())) {
       if (deps.events.insert(event)) {
-        try { deps.onEventStored(event); } catch { /* a entrega não pode derrubar o recebimento */ }
+        try {
+          deps.onEventStored(event);
+        } catch (error) {
+          // A entrega não pode derrubar o recebimento; o evento já está gravado.
+          log(`[webhooks] falha ao enfileirar o evento ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
     res.status(200).send('EVENT_RECEIVED');
