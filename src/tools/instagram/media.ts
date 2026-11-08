@@ -9,7 +9,7 @@ export const MEDIA_FIELDS =
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
-function toUnix(value: string | undefined, name: string): number | undefined {
+export function toUnix(value: string | undefined, name: string): number | undefined {
   if (!value) return undefined;
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) throw new Error(`${name} inválido: use data ISO 8601 (ex.: 2026-01-31T00:00:00Z).`);
